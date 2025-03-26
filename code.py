@@ -26,7 +26,7 @@ def generate_clip_gen(objectId, name, animationName, animInternalId):
             </field>
             <field name="variableBindingSet"><pointer id="object0"/></field>
             <field name="userData"><integer value="0"/></field>
-            <field name="name"><string value="{name}/></field>
+            <field name="name"><string value="{name}"/></field>
             <field name="animationName"><string value="{animationName}"/></field>
             <field name="triggers"><pointer id="object0"/></field>
             <field name="userPartitionMask"><integer value="0"/></field>
@@ -74,7 +74,7 @@ def generate_csmg(objectId, name, userData, pointer, animId):
 
 def generate_stateinfo(objectId, name, pointer, stateId):
     xml_stateinfo = f"""
-    <object id={objectId}" typeid="type115" > <!-- hkbStateMachine::StateInfo -->
+    <object id="{objectId}" typeid="type115" > <!-- hkbStateMachine::StateInfo -->
         <record> <!-- hkbStateMachine::StateInfo -->
             <field name="propertyBag">
                 <array count="0" elementtypeid="type15"> <!-- ArrayOf hkDefaultPropertyBag -->
@@ -271,33 +271,58 @@ def modify_transition(xml_file, object_id, new_transitions):
     lines[array_end:array_end] = new_entries
     
     # Write the modified file
-    with open('modified_' + xml_file, 'w') as f:
+    with open(xml_file, 'w') as f:
         f.writelines(lines)
     
     print(f"Successfully added {len(new_transitions)} transitions. New count: {new_count}")
 
 """
-Uses XML e tools and returns last object.
+Uses XML e tools and returns last object in XML.
 """
-def find_last_object_id(xml_file):
-    #tree = ET.parse(xml_file)
-    #root = tree.getroot()
-    
-    last_id = None
-    max_num = -1
+def last_obj():
+    last_num = -1
+    #last_full_id = None
     
     for obj in root.findall('.//object'):
         obj_id = obj.get('id')
         if obj_id and obj_id.startswith('object'):
             try:
-                current_num = int(obj_id[6:])  # Extract number after "object"
-                if current_num > max_num:
-                    max_num = current_num
-                    last_id = obj_id
+                current_num = int(obj_id[6:])
+                if current_num > last_num:
+                    last_num = current_num
+                    #last_full_id = obj_id
             except ValueError:
                 continue
-                
-    return last_id
+    
+    return last_num
+"""
+Appends string at the end of the xml file, right before the hktagfile.
+"""
+def append_xml(content):
+    # Read the entire file
+    with open("new_c9997.xml", 'r') as f:
+        lines = f.readlines()
+    
+    # Find the last line containing </hktagfile>
+    hktagfile_pos = None
+    for i, line in enumerate(reversed(lines)):
+        if '</hktagfile>' in line:
+            hktagfile_pos = len(lines) - i - 1
+            break
+    
+    if hktagfile_pos is None:
+        raise ValueError("</hktagfile> tag not found in file")
+    
+    # Insert our content before this line, maintaining original indentation
+    indent = lines[hktagfile_pos][:lines[hktagfile_pos].find('</hktagfile>')]
+    formatted_content = indent + content.rstrip('\n') + '\n'
+    
+    # Insert the new content
+    lines.insert(hktagfile_pos, formatted_content)
+    
+    # Write the modified file back
+    with open("new_c9997.xml", 'w') as f:
+        f.writelines(lines)
 
 def add_event(anim_id):
     anim_id = str(anim_id)
@@ -305,18 +330,25 @@ def add_event(anim_id):
     animationName = "a000_00" + anim_id
     csmg_name = name + "_CSMG"
     stateinfo_name = name + "_hkx_AutoSet_00"
-    print(name)
-    print(animationName)
-    print(csmg_name)
-    print(stateinfo_name)
+    animInternalId = 1
+    userData = 21168131
+    state_id = 1
+    clip_gen_id = "object" + str(last_obj() + 1)
+    csmg_id = "object" + str(last_obj() + 2)
+    stateinfo_id = "object" + str(last_obj() + 3)
+    new_transitions = [
+        {"target": "object10", "event_id": "9", "state_id": "107"}
+    ]
+    test = [
+        stateinfo_id,
+        stateinfo_id
+    ]
+    modify_transition('new_c9997.xml', edit_parent_stateinfo(find_parent_stateinfo_object(), test), new_transitions)
+    append_xml(generate_clip_gen(clip_gen_id, name, animationName, animInternalId))
+    append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
+    append_xml(generate_stateinfo(stateinfo_id, stateinfo_name, csmg_id, state_id))
 
 add_event(3010)
-
-# Example usage:
-new_transitions = [
-    {"target": "object10", "event_id": "8", "state_id": "2"},
-    {"target": "object10", "event_id": "9", "state_id": "3"}
-]
     
 # Example usage
 """ clip_gen = generate_clip_gen("object1300", "a000_003052_hkx_AutoSet_00", "a000_003052", "364")
@@ -324,10 +356,10 @@ csmg = generate_csmg("object1301", "Attack3052_CMSG", "21168132", "object1300", 
 stateinfo = generate_stateinfo("object1302", "Attack3052", "object1301", "107")
 print(clip_gen)
 print(csmg)
-print(stateinfo) """
-#find_parent_stateinfo_object()
+print(stateinfo) 
+#find_parent_stateinfo_object()"""
 new_entries = ["object2001", "object2002"]
-modify_transition('new_c9997.xml', edit_parent_stateinfo(find_parent_stateinfo_object(), new_entries), new_transitions)
-
-last_id = find_last_object_id('new_c9997.xml')
-print(f"The last object ID is: {last_id}")
+new_transitions = [
+        {"target": "object10", "event_id": "9", "state_id": "107"}
+    ]
+#edit_parent_stateinfo(find_parent_stateinfo_object(), new_entries)
