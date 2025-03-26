@@ -123,6 +123,7 @@ def find_parent_stateinfo_object():
 Holy fuck this is scuffed. 
 No longer uses XML e tree and just uses simple line counting and it writes to the new_c9997.xml.
 This edits the parent stateinfo array to increase the count and add new object list.
+This also returns the wildcard object id, which will be used for modify_transition
 """
 def edit_parent_stateinfo(search_id, new_pointers):
     # Read XML as text to preserve structure
@@ -179,7 +180,7 @@ def edit_parent_stateinfo(search_id, new_pointers):
     
     print("Pointer not found in any array.")
     
-def modify_transitions_text_based(xml_file, object_id, new_transitions):
+def modify_transition(xml_file, object_id, new_transitions):
     # Read the XML file
     with open(xml_file, 'r') as f:
         lines = f.readlines()
@@ -275,6 +276,42 @@ def modify_transitions_text_based(xml_file, object_id, new_transitions):
     
     print(f"Successfully added {len(new_transitions)} transitions. New count: {new_count}")
 
+"""
+Uses XML e tools and returns last object.
+"""
+def find_last_object_id(xml_file):
+    #tree = ET.parse(xml_file)
+    #root = tree.getroot()
+    
+    last_id = None
+    max_num = -1
+    
+    for obj in root.findall('.//object'):
+        obj_id = obj.get('id')
+        if obj_id and obj_id.startswith('object'):
+            try:
+                current_num = int(obj_id[6:])  # Extract number after "object"
+                if current_num > max_num:
+                    max_num = current_num
+                    last_id = obj_id
+            except ValueError:
+                continue
+                
+    return last_id
+
+def add_event(anim_id):
+    anim_id = str(anim_id)
+    name = "Attack" + anim_id
+    animationName = "a000_00" + anim_id
+    csmg_name = name + "_CSMG"
+    stateinfo_name = name + "_hkx_AutoSet_00"
+    print(name)
+    print(animationName)
+    print(csmg_name)
+    print(stateinfo_name)
+
+add_event(3010)
+
 # Example usage:
 new_transitions = [
     {"target": "object10", "event_id": "8", "state_id": "2"},
@@ -290,4 +327,7 @@ print(csmg)
 print(stateinfo) """
 #find_parent_stateinfo_object()
 new_entries = ["object2001", "object2002"]
-modify_transitions_text_based('new_c9997.xml', edit_parent_stateinfo(find_parent_stateinfo_object(), new_entries), new_transitions)
+modify_transition('new_c9997.xml', edit_parent_stateinfo(find_parent_stateinfo_object(), new_entries), new_transitions)
+
+last_id = find_last_object_id('new_c9997.xml')
+print(f"The last object ID is: {last_id}")

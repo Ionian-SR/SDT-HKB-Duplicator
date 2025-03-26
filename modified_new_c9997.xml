@@ -29161,7 +29161,7 @@
                 <field name="exitTime"><real dec="0" hex="#0"/></field>
               </record>
             </field>
-            <field name="transition"><pointer id="object123"/></field>
+            <field name="transition"><pointer id="object10"/></field>
             <field name="condition"><pointer id="object0"/></field>
             <field name="eventId"><integer value="8"/></field>
             <field name="toStateId"><integer value="2"/></field>
@@ -29187,7 +29187,7 @@
                 <field name="exitTime"><real dec="0" hex="#0"/></field>
               </record>
             </field>
-            <field name="transition"><pointer id="object124"/></field>
+            <field name="transition"><pointer id="object10"/></field>
             <field name="condition"><pointer id="object0"/></field>
             <field name="eventId"><integer value="9"/></field>
             <field name="toStateId"><integer value="3"/></field>
