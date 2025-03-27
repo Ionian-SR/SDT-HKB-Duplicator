@@ -1,6 +1,7 @@
 import re
 import xml.etree.ElementTree as ET
 import shutil
+import sys
 
 #   Read event_names.txt
 with open("event_names.txt", "r") as file:
@@ -15,6 +16,46 @@ root = tree.getroot()
 
 #   Dupe c9997
 shutil.copy("c9997.xml", "new_c9997.xml")
+
+def process_arguments():
+    """
+    Processes command line arguments and returns a validated list of numbers between 3000-3110.
+    Supports single numbers or ranges (e.g., 3010 or 3010 3020).
+    """
+    args = sys.argv[1:]  # Skip script name
+    
+    if not args:
+        print("Usage: python3 code.py <start> [end]")
+        print("Example: python3 code.py 3010")
+        print("Example: python3 code.py 3010 3020")
+        sys.exit(1)
+    
+    try:
+        # Convert to integers
+        numbers = [int(arg) for arg in args]
+    except ValueError:
+        print("Error: All arguments must be numbers")
+        sys.exit(1)
+    
+    # Validate single number
+    if len(numbers) == 1:
+        num = numbers[0]
+        if 3000 <= num <= 3110:
+            return [num]
+        print(f"Ignoring {num} - must be between 3000-3110")
+        return []
+    
+    # Validate range
+    elif len(numbers) == 2:
+        start, end = sorted(numbers)  # Handle reverse order automatically
+        if start < 3000 or end > 3110:
+            print("Both numbers must be between 3000-3110")
+            return []
+        return list(range(start, end + 1))
+    
+    else:
+        print("Error: Too many arguments (max 2)")
+        return []
 
 def generate_clip_gen(objectId, name, animationName, animInternalId):
     xml_clip = f"""  
@@ -259,6 +300,8 @@ def modify_transition(xml_file, object_id, new_transitions):
 Uses XML e tools and returns last object in XML.
 """
 def last_obj():
+    tree = ET.parse("new_c9997.xml")
+    root = tree.getroot()
     last_num = -1
     #last_full_id = None
     
@@ -350,7 +393,94 @@ def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern
             return i, current_line.strip()
     
     return None, None
-
+def edit_xml_attribute(find_pattern: str,attribute_name: str,new_value: str) -> bool:
+    """
+    Finds an XML tag matching the pattern and edits the specified attribute.
+    
+    Args:
+        find_pattern: String to identify the XML tag (e.g., '<array count=')
+        attribute_name: Attribute to modify (e.g., 'count' or 'id')
+        new_value: New value to set (e.g., '45' or 'object500')
+        file_path: Path to XML file (default: new_c9997.xml)
+    
+    Returns:
+        bool: True if modification succeeded, False otherwise
+    """
+    with open('new_c9997.xml', 'r+') as f:
+        lines = f.readlines()
+        f.seek(0)
+        modified = False
+        
+        for line in lines:
+            if find_pattern in line and f'{attribute_name}="' in line:
+                # Find and replace the attribute value
+                attr_start = line.find(f'{attribute_name}="') + len(attribute_name) + 2
+                attr_end = line.find('"', attr_start)
+                line = line[:attr_start] + new_value + line[attr_end:]
+                modified = True
+            f.write(line)
+        
+        if modified:
+            f.truncate()
+        return modified
+def add_pointer_to_array(
+    start_object_id: str,
+    new_pointer_ids: list,
+    file_path: str = "new_c9997.xml"
+) -> bool:
+    """
+    Adds new pointer entries to an array before the closing </array> tag.
+    
+    Args:
+        start_object_id: Existing pointer ID to locate the array (e.g. "object490")
+        new_pointer_ids: List of new IDs to add (e.g. ["object500", "object501"])
+        file_path: Path to XML file
+        
+    Returns:
+        bool: True if successful, False if failed
+    """
+    with open(file_path, 'r+') as f:
+        lines = f.readlines()
+        f.seek(0)
+        array_start = -1
+        array_end = -1
+        indent = "          "  # Match your indentation
+        
+        # Find the array containing the start_object_id
+        for i, line in enumerate(lines):
+            if f'<pointer id="{start_object_id}"/>' in line:
+                # Search backward for array start
+                for j in range(i, -1, -1):
+                    if '<array count=' in lines[j]:
+                        array_start = j
+                        break
+                # Search forward for array end
+                for j in range(i, len(lines)):
+                    if '</array>' in lines[j]:
+                        array_end = j
+                        break
+                break
+        
+        if array_start == -1 or array_end == -1:
+            return False
+        
+        # Update array count
+        count_line = lines[array_start]
+        old_count = int(count_line.split('count="')[1].split('"')[0])
+        new_count = old_count + len(new_pointer_ids)
+        lines[array_start] = count_line.replace(
+            f'count="{old_count}"',
+            f'count="{new_count}"'
+        )
+        
+        # Insert new pointers before </array>
+        new_lines = [f'{pid}\n' for pid in new_pointer_ids]
+        lines[array_end:array_end] = new_lines
+        
+        # Write modified content
+        f.writelines(lines)
+        f.truncate()
+        return True
 """
 Filters all the text from the selected line, except for keywords such as array count or "objectXXX"
 """
@@ -373,27 +503,73 @@ def add_event(anim_id):
     clip_gen_id = "object" + str(last_obj() + 1)
     csmg_id = "object" + str(last_obj() + 2)
     stateinfo_id = "object" + str(last_obj() + 3)
-    new_transitions = [
-        {"target": "object10", "event_id": "9", "state_id": "107"}
-    ]
-    test = [
-        stateinfo_id,
-        stateinfo_id
+    new_pointer_ids=[f'          <pointer id="{stateinfo_id}"/>']
+    new_transitions = [f'''
+          <record> <!-- hkbStateMachine::TransitionInfo -->
+            <field name="triggerInterval">
+              <record> <!-- hkbStateMachine::TimeInterval -->
+                <field name="enterEventId"><integer value="-1"/></field>
+                <field name="exitEventId"><integer value="-1"/></field>
+                <field name="enterTime"><real dec="0" hex="#0"/></field>
+                <field name="exitTime"><real dec="0" hex="#0"/></field>
+              </record>
+            </field>
+            <field name="initiateInterval">
+              <record> <!-- hkbStateMachine::TimeInterval -->
+                <field name="enterEventId"><integer value="-1"/></field>
+                <field name="exitEventId"><integer value="-1"/></field>
+                <field name="enterTime"><real dec="0" hex="#0"/></field>
+                <field name="exitTime"><real dec="0" hex="#0"/></field>
+              </record>
+            </field>
+            <field name="transition"><pointer id="object10"/></field>
+            <field name="condition"><pointer id="object0"/></field>
+            <field name="eventId"><integer value="7"/></field>
+            <field name="toStateId"><integer value="1"/></field>
+            <field name="fromNestedStateId"><integer value="0"/></field>
+            <field name="toNestedStateId"><integer value="0"/></field>
+            <field name="priority"><integer value="0"/></field>
+            <field name="flags"><integer value="3584"/></field>
+          </record>'''
     ]
     
-    line_num, line = find_line(
+    #   FIND PARENT STATEINFO OF 3000
+    line_num, stateinfo_line = find_line(
     start_pattern=['<field name="name"><string value="Attack3000"/></field>'],
     direction='up',
     target_pattern=' <object id='
     )
+    print(filter(stateinfo_line))
+    #   ADD NEW OBJECT POINTERS TO PARENT STATEINFO ARRAY
+    add_pointer_to_array(filter(stateinfo_line), new_pointer_ids)
+    #   FIND WILDCARD OBJECT ID
+    wildcard_num, wildcard_line = find_line(
+    start_pattern=['<pointer id="' + filter(stateinfo_line) + '"/>'],
+    direction='down',
+    target_pattern='<field name="wildcardTransitions"><pointer id='
+    )
+    print(filter(wildcard_line, 'id="'))
+    #   FIND TRANSITION ARRAY
+    transition_num, transition_line = find_line(
+    start_pattern=[' <object id="' + filter(wildcard_line)],
+    direction='down',
+    target_pattern='<field name="wildcardTransitions"><pointer id='
+    )
+    #   ADD NEW RECORD ENTRIES TO TRANSITION ARRAY
     
-    #print(filter(line))
     
-    modify_transition('new_c9997.xml', edit_parent_stateinfo(filter(line), test), new_transitions)
+    #modify_transition('new_c9997.xml', edit_parent_stateinfo(filter(line), test), new_transitions)
     append_xml(generate_clip_gen(clip_gen_id, name, animationName, animInternalId))
     append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
     append_xml(generate_stateinfo(stateinfo_id, stateinfo_name, csmg_id, state_id))
 
 #####################
-
-add_event(3010)
+if __name__ == "__main__":
+    result = process_arguments()
+    if result:
+        print("Valid numbers to process:", result)
+        for entry in result:
+            add_event(entry)
+    else:
+        print("No valid numbers found")
+    #add_event(3010)
