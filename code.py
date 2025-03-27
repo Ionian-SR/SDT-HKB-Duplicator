@@ -448,7 +448,7 @@ def add_pointer_to_array(
         
         # Find the array containing the start_object_id
         for i, line in enumerate(lines):
-            if f'<pointer id="{start_object_id}"/>' in line:
+            if start_object_id in line:
                 # Search backward for array start
                 for j in range(i, -1, -1):
                     if '<array count=' in lines[j]:
@@ -504,7 +504,7 @@ def add_event(anim_id):
     csmg_id = "object" + str(last_obj() + 2)
     stateinfo_id = "object" + str(last_obj() + 3)
     new_pointer_ids=[f'          <pointer id="{stateinfo_id}"/>']
-    new_transitions = [f'''
+    new_transitions = ['''
           <record> <!-- hkbStateMachine::TransitionInfo -->
             <field name="triggerInterval">
               <record> <!-- hkbStateMachine::TimeInterval -->
@@ -524,14 +524,13 @@ def add_event(anim_id):
             </field>
             <field name="transition"><pointer id="object10"/></field>
             <field name="condition"><pointer id="object0"/></field>
-            <field name="eventId"><integer value="7"/></field>
+            <field name="eventId"><integer value="TESTTESTTEST"/></field>
             <field name="toStateId"><integer value="1"/></field>
             <field name="fromNestedStateId"><integer value="0"/></field>
             <field name="toNestedStateId"><integer value="0"/></field>
             <field name="priority"><integer value="0"/></field>
             <field name="flags"><integer value="3584"/></field>
-          </record>'''
-    ]
+          </record>''']
     
     #   FIND PARENT STATEINFO OF 3000
     line_num, stateinfo_line = find_line(
@@ -541,7 +540,7 @@ def add_event(anim_id):
     )
     print(filter(stateinfo_line))
     #   ADD NEW OBJECT POINTERS TO PARENT STATEINFO ARRAY
-    add_pointer_to_array(filter(stateinfo_line), new_pointer_ids)
+    add_pointer_to_array(f'          <pointer id="{filter(stateinfo_line)}"/>', new_pointer_ids)
     #   FIND WILDCARD OBJECT ID
     wildcard_num, wildcard_line = find_line(
     start_pattern=['<pointer id="' + filter(stateinfo_line) + '"/>'],
@@ -551,12 +550,13 @@ def add_event(anim_id):
     print(filter(wildcard_line, 'id="'))
     #   FIND TRANSITION ARRAY
     transition_num, transition_line = find_line(
-    start_pattern=[' <object id="' + filter(wildcard_line)],
+    start_pattern=['  <object id="' + filter(wildcard_line, 'id="') + '" typeid="type113" > <!-- hkbStateMachine::TransitionInfoArray -->'],
     direction='down',
-    target_pattern='<field name="wildcardTransitions"><pointer id='
+    target_pattern='<record> <!-- hkbStateMachine::TransitionInfo -->'
     )
-    #   ADD NEW RECORD ENTRIES TO TRANSITION ARRAY
-    
+    #print('  <object id="' + filter(wildcard_line) + '" typeid="type113" > <!-- hkbStateMachine::TransitionInfoArray -->')
+    print(transition_line)
+    add_pointer_to_array(transition_line, new_transitions)
     
     #modify_transition('new_c9997.xml', edit_parent_stateinfo(filter(line), test), new_transitions)
     append_xml(generate_clip_gen(clip_gen_id, name, animationName, animInternalId))
