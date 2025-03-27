@@ -324,6 +324,64 @@ def append_xml(content):
     with open("new_c9997.xml", 'w') as f:
         f.writelines(lines)
 
+def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern=None):
+    """
+    Searches new_c9997.xml for a line matching start_pattern, then looks up/down for another line.
+    
+    Args:
+        start_pattern: String or list of strings to find the initial line
+        direction: 'up' or 'down' to search from found line
+        target_pattern: String/list of strings to find in search direction
+        stop_pattern: String/list of strings that will stop the search if encountered
+    
+    Returns:
+        tuple: (found_line_number, found_line_content) or (None, None)
+    """
+    def pattern_match(line, patterns):
+        if patterns is None:
+            return False
+        if isinstance(patterns, str):
+            return patterns in line
+        return any(p in line for p in patterns)
+    
+    with open("new_c9997.xml", 'r') as f:
+        lines = f.readlines()
+    
+    # Find starting line
+    start_line = next((i for i, line in enumerate(lines) 
+                      if pattern_match(line, start_pattern)), None)
+    
+    if start_line is None:
+        return None, None
+    
+    # Determine search range
+    if direction == 'up':
+        search_range = range(start_line - 1, -1, -1)  # To start of file
+    else:
+        search_range = range(start_line + 1, len(lines))  # To end of file
+    
+    # Search in direction
+    for i in search_range:
+        current_line = lines[i]
+        
+        if pattern_match(current_line, stop_pattern):
+            return None, None
+            
+        if pattern_match(current_line, target_pattern):
+            return i, current_line.strip()
+    
+    return None, None
+
+"""
+Filters all the text from the selected line, except for keywords such as array count or "objectXXX"
+"""
+def filter(line, search_str='="'):
+    if line is not None:
+        id_start = line.find(search_str) + len(search_str)
+        id_end = line.find('"', id_start)
+        return line[id_start:id_end]
+    return "Not found."
+
 def add_event(anim_id):
     anim_id = str(anim_id)
     name = "Attack" + anim_id
@@ -348,7 +406,15 @@ def add_event(anim_id):
     append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
     append_xml(generate_stateinfo(stateinfo_id, stateinfo_name, csmg_id, state_id))
 
-add_event(3010)
+#add_event(3010)
+
+line_num, line = find_line(
+    start_pattern=['<field name="eventId"><integer value="496"/></field>'],
+    direction='down',
+    target_pattern=' <object id='
+)
+
+
     
 # Example usage
 """ clip_gen = generate_clip_gen("object1300", "a000_003052_hkx_AutoSet_00", "a000_003052", "364")
