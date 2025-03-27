@@ -98,27 +98,6 @@ def generate_stateinfo(objectId, name, pointer, stateId):
     """
     return xml_stateinfo
 
-"""
-Finds the Attack3000 stateinfo objectId so that the next function can find the parent stateinfo array for attacks.
-"""
-def find_parent_stateinfo_object():
-    # Dictionary to store parent references
-    parent_map = {child: parent for parent in root.iter() for child in parent}
-
-    # Find the <field> element with name="name" and value="Attack3000"
-    for field in root.findall(".//field[@name='name']"):
-        string_element = field.find("string")
-        if string_element is not None and string_element.attrib.get("value") == "Attack3000":
-            print("Found target field:", ET.tostring(field, encoding='unicode'))
-
-            # Find the enclosing <object> by traversing up using parent_map
-            object_element = field
-            while object_element in parent_map:
-                object_element = parent_map[object_element]
-                if object_element.tag == "object":
-                    object_id = object_element.attrib.get("id")  # Extract object ID
-                    print(f"Found enclosing object with ID: {object_id}")
-                    return object_id
 """    
 Holy fuck this is scuffed. 
 No longer uses XML e tree and just uses simple line counting and it writes to the new_c9997.xml.
@@ -401,31 +380,20 @@ def add_event(anim_id):
         stateinfo_id,
         stateinfo_id
     ]
-    modify_transition('new_c9997.xml', edit_parent_stateinfo(find_parent_stateinfo_object(), test), new_transitions)
+    
+    line_num, line = find_line(
+    start_pattern=['<field name="name"><string value="Attack3000"/></field>'],
+    direction='up',
+    target_pattern=' <object id='
+    )
+    
+    #print(filter(line))
+    
+    modify_transition('new_c9997.xml', edit_parent_stateinfo(filter(line), test), new_transitions)
     append_xml(generate_clip_gen(clip_gen_id, name, animationName, animInternalId))
     append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
     append_xml(generate_stateinfo(stateinfo_id, stateinfo_name, csmg_id, state_id))
 
-#add_event(3010)
+#####################
 
-line_num, line = find_line(
-    start_pattern=['<field name="eventId"><integer value="496"/></field>'],
-    direction='down',
-    target_pattern=' <object id='
-)
-
-
-    
-# Example usage
-""" clip_gen = generate_clip_gen("object1300", "a000_003052_hkx_AutoSet_00", "a000_003052", "364")
-csmg = generate_csmg("object1301", "Attack3052_CMSG", "21168132", "object1300", "3052")
-stateinfo = generate_stateinfo("object1302", "Attack3052", "object1301", "107")
-print(clip_gen)
-print(csmg)
-print(stateinfo) 
-#find_parent_stateinfo_object()"""
-new_entries = ["object2001", "object2002"]
-new_transitions = [
-        {"target": "object10", "event_id": "9", "state_id": "107"}
-    ]
-#edit_parent_stateinfo(find_parent_stateinfo_object(), new_entries)
+add_event(3010)
