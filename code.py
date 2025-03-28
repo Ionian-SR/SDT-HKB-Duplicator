@@ -138,67 +138,6 @@ def generate_stateinfo(objectId, name, pointer, stateId):
     </object>
     """
     return xml_stateinfo
-
-"""    
-Holy fuck this is scuffed. 
-No longer uses XML e tree and just uses simple line counting and it writes to the new_c9997.xml.
-This edits the parent stateinfo array to increase the count and add new object list.
-This also returns the wildcard object id, which will be used for modify_transition
-"""
-def edit_parent_stateinfo(search_id, new_pointers):
-    # Read XML as text to preserve structure
-    with open("new_c9997.xml", "r") as f:
-        lines = f.readlines()
-    
-    # Find the array and add new pointers
-    for i, line in enumerate(lines):
-        if f'<pointer id="{search_id}"' in line:
-            # Find the closing </array> tag
-            array_end = None
-            for j in range(i, len(lines)):
-                if "</array>" in lines[j]:
-                    array_end = j
-                    break
-            
-            if array_end is None:
-                print("Error: </array> tag not found.")
-                return
-            
-            # Insert new pointers before </array>
-            new_lines = []
-            for pointer_id in new_pointers:
-                new_lines.append(f'          <pointer id="{pointer_id}" />\n')
-            lines[array_end:array_end] = new_lines
-            
-            # Update array count
-            for k, line in enumerate(lines):
-                if "<array count=" in line and "</array>" in lines[k+1]:
-                    old_count = int(line.split('count="')[1].split('"')[0])
-                    line = line.replace(f'count="{old_count}"', f'count="{old_count + len(new_pointers)}"')
-                    lines[k] = line
-                    break
-            
-            # Find wildcardTransitions (search after </array>)
-            wildcard_id = None
-            for m in range(array_end + len(new_pointers), len(lines)):
-                if "<field name=\"wildcardTransitions\">" in lines[m]:
-                    # Extract ID even if it's in the same line
-                    if "<pointer id=" in lines[m]:
-                        wildcard_id = lines[m].split('id="')[1].split('"')[0]
-                    break
-            
-            if wildcard_id:
-                print(f"Found wildcardTransitions ID: {wildcard_id}")
-            else:
-                print("Warning: wildcardTransitions not found after </array>")
-            
-            # Save changes
-            with open("new_c9997.xml", "w") as f:
-                f.writelines(lines)
-            print("Modified XML saved.")
-            return wildcard_id
-    
-    print("Pointer not found in any array.")
     
 def modify_transition(xml_file, object_id, new_transitions):
     # Read the XML file
@@ -555,7 +494,7 @@ def add_event(anim_id):
     target_pattern='<record> <!-- hkbStateMachine::TransitionInfo -->'
     )
     #print('  <object id="' + filter(wildcard_line) + '" typeid="type113" > <!-- hkbStateMachine::TransitionInfoArray -->')
-    print(transition_line)
+    print(transition_num)
     add_pointer_to_array(transition_line, new_transitions)
     
     #modify_transition('new_c9997.xml', edit_parent_stateinfo(filter(line), test), new_transitions)
