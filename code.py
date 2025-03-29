@@ -287,14 +287,15 @@ def append_xml(content):
 
 def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern=None):
     """
-    Searches new_c9997.xml for a line matching start_pattern, then looks up/down for another line.
-    
+    Searches new_c9997.xml for a line matching start_pattern or starts at a given line number,
+    then looks up/down for another line.
+
     Args:
-        start_pattern: String or list of strings to find the initial line
-        direction: 'up' or 'down' to search from found line
-        target_pattern: String/list of strings to find in search direction
-        stop_pattern: String/list of strings that will stop the search if encountered
-    
+        start_pattern: String, list of strings, or integer. If an integer, it represents the starting line number.
+        direction: 'up' or 'down' to search from the starting point.
+        target_pattern: String or list of strings to find in the search direction.
+        stop_pattern: String or list of strings that will stop the search if encountered.
+
     Returns:
         tuple: (found_line_number, found_line_content) or (None, None)
     """
@@ -308,9 +309,15 @@ def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern
     with open("new_c9997.xml", 'r') as f:
         lines = f.readlines()
     
-    # Find starting line
-    start_line = next((i for i, line in enumerate(lines) 
-                      if pattern_match(line, start_pattern)), None)
+    # Determine starting line number
+    if isinstance(start_pattern, int):
+        if 0 <= start_pattern < len(lines):
+            start_line = start_pattern
+        else:
+            return None, None
+    else:
+        start_line = next((i for i, line in enumerate(lines) 
+                          if pattern_match(line, start_pattern)), None)
     
     if start_line is None:
         return None, None
@@ -321,7 +328,7 @@ def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern
     else:
         search_range = range(start_line + 1, len(lines))  # To end of file
     
-    # Search in direction
+    # Search in the specified direction
     for i in search_range:
         current_line = lines[i]
         
@@ -332,6 +339,7 @@ def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern
             return i, current_line.strip()
     
     return None, None
+
 def edit_xml_attribute(find_pattern: str,attribute_name: str,new_value: str) -> bool:
     """
     Finds an XML tag matching the pattern and edits the specified attribute.
@@ -443,33 +451,13 @@ def add_event(anim_id):
     csmg_id = "object" + str(last_obj() + 2)
     stateinfo_id = "object" + str(last_obj() + 3)
     new_pointer_ids=[f'          <pointer id="{stateinfo_id}"/>']
-    new_transitions = ['''
-          <record> <!-- hkbStateMachine::TransitionInfo -->
-            <field name="triggerInterval">
-              <record> <!-- hkbStateMachine::TimeInterval -->
-                <field name="enterEventId"><integer value="-1"/></field>
-                <field name="exitEventId"><integer value="-1"/></field>
-                <field name="enterTime"><real dec="0" hex="#0"/></field>
-                <field name="exitTime"><real dec="0" hex="#0"/></field>
-              </record>
-            </field>
-            <field name="initiateInterval">
-              <record> <!-- hkbStateMachine::TimeInterval -->
-                <field name="enterEventId"><integer value="-1"/></field>
-                <field name="exitEventId"><integer value="-1"/></field>
-                <field name="enterTime"><real dec="0" hex="#0"/></field>
-                <field name="exitTime"><real dec="0" hex="#0"/></field>
-              </record>
-            </field>
-            <field name="transition"><pointer id="object10"/></field>
-            <field name="condition"><pointer id="object0"/></field>
-            <field name="eventId"><integer value="TESTTESTTEST"/></field>
-            <field name="toStateId"><integer value="1"/></field>
-            <field name="fromNestedStateId"><integer value="0"/></field>
-            <field name="toNestedStateId"><integer value="0"/></field>
-            <field name="priority"><integer value="0"/></field>
-            <field name="flags"><integer value="3584"/></field>
-          </record>''']
+    new_transitions = [
+        {
+            "target": "object10",
+            "event_id": find_event_index(anim_id, event_names_list),
+            "state_id": 999
+        }
+    ]
     
     #   FIND PARENT STATEINFO OF 3000
     line_num, stateinfo_line = find_line(
@@ -489,18 +477,33 @@ def add_event(anim_id):
     print(filter(wildcard_line, 'id="'))
     #   FIND TRANSITION ARRAY
     transition_num, transition_line = find_line(
-    start_pattern=['  <object id="' + filter(wildcard_line, 'id="') + '" typeid="type113" > <!-- hkbStateMachine::TransitionInfoArray -->'],
+    start_pattern= 0,
     direction='down',
-    target_pattern='<record> <!-- hkbStateMachine::TransitionInfo -->'
+    target_pattern='  <object id="' + filter(wildcard_line, 'id="')
     )
-    #print('  <object id="' + filter(wildcard_line) + '" typeid="type113" > <!-- hkbStateMachine::TransitionInfoArray -->')
-    print(transition_num)
-    add_pointer_to_array(transition_line, new_transitions)
-    
-    #modify_transition('new_c9997.xml', edit_parent_stateinfo(filter(line), test), new_transitions)
+    print(transition_num, transition_line)
+    modify_transition('new_c9997.xml', filter(wildcard_line, 'id="'), new_transitions)
     append_xml(generate_clip_gen(clip_gen_id, name, animationName, animInternalId))
     append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
     append_xml(generate_stateinfo(stateinfo_id, stateinfo_name, csmg_id, state_id))
+
+def find_event_index(event_number, event_names):
+    """
+    Finds the index of an event name containing the specified number.
+    
+    Args:
+        event_number (int/str): The number to search for in event names (e.g., 3050 or "3050")
+        event_names (list): The list of event names to search through
+    
+    Returns:
+        int: The index of the matching event, or -1 if not found
+    """
+    search_str = str(event_number)  # Convert to string for searching
+    for index, name in enumerate(event_names):
+        if search_str in name:
+            print(index)
+            return index
+    return -1  # Return -1 if not found
 
 #####################
 if __name__ == "__main__":
