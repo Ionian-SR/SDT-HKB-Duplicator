@@ -235,10 +235,11 @@ def modify_transition(xml_file, object_id, new_transitions):
     
     print(f"Successfully added {len(new_transitions)} transitions. New count: {new_count}")
 
-"""
-Uses XML e tools and returns last object in XML.
-"""
 def last_obj():
+    """
+    Uses XML e tools and returns last object in XML. 
+    This is the only function that uses XML e tools.
+    """
     tree = ET.parse("new_c9997.xml")
     root = tree.getroot()
     last_num = -1
@@ -256,15 +257,15 @@ def last_obj():
                 continue
     
     return last_num
-"""
-Appends string at the end of the xml file, right before the hktagfile.
-"""
 def append_xml(content):
-    # Read the entire file
+    """
+    Appends string at the end of the xml file, right before the hktagfile.
+    """
+    #   Read the entire file
     with open("new_c9997.xml", 'r') as f:
         lines = f.readlines()
     
-    # Find the last line containing </hktagfile>
+    #   Find the last line containing </hktagfile>
     hktagfile_pos = None
     for i, line in enumerate(reversed(lines)):
         if '</hktagfile>' in line:
@@ -274,7 +275,7 @@ def append_xml(content):
     if hktagfile_pos is None:
         raise ValueError("</hktagfile> tag not found in file")
     
-    # Insert our content before this line, maintaining original indentation
+    #   Insert our content before this line, maintaining original indentation
     indent = lines[hktagfile_pos][:lines[hktagfile_pos].find('</hktagfile>')]
     formatted_content = indent + content.rstrip('\n') + '\n'
     
@@ -339,42 +340,7 @@ def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern
             return i, current_line.strip()
     
     return None, None
-
-def edit_xml_attribute(find_pattern: str,attribute_name: str,new_value: str) -> bool:
-    """
-    Finds an XML tag matching the pattern and edits the specified attribute.
-    
-    Args:
-        find_pattern: String to identify the XML tag (e.g., '<array count=')
-        attribute_name: Attribute to modify (e.g., 'count' or 'id')
-        new_value: New value to set (e.g., '45' or 'object500')
-        file_path: Path to XML file (default: new_c9997.xml)
-    
-    Returns:
-        bool: True if modification succeeded, False otherwise
-    """
-    with open('new_c9997.xml', 'r+') as f:
-        lines = f.readlines()
-        f.seek(0)
-        modified = False
-        
-        for line in lines:
-            if find_pattern in line and f'{attribute_name}="' in line:
-                # Find and replace the attribute value
-                attr_start = line.find(f'{attribute_name}="') + len(attribute_name) + 2
-                attr_end = line.find('"', attr_start)
-                line = line[:attr_start] + new_value + line[attr_end:]
-                modified = True
-            f.write(line)
-        
-        if modified:
-            f.truncate()
-        return modified
-def add_pointer_to_array(
-    start_object_id: str,
-    new_pointer_ids: list,
-    file_path: str = "new_c9997.xml"
-) -> bool:
+def add_pointer_to_array(start_object_id: str,new_pointer_ids: list,file_path: str = "new_c9997.xml") -> bool:
     """
     Adds new pointer entries to an array before the closing </array> tag.
     
@@ -428,10 +394,10 @@ def add_pointer_to_array(
         f.writelines(lines)
         f.truncate()
         return True
-"""
-Filters all the text from the selected line, except for keywords such as array count or "objectXXX"
-"""
 def filter(line, search_str='="'):
+    """
+    Filters all the text from the selected line, except for keywords such as array count or "objectXXX"
+    """
     if line is not None:
         id_start = line.find(search_str) + len(search_str)
         id_end = line.find('"', id_start)
@@ -488,22 +454,19 @@ def add_event(anim_id):
     append_xml(generate_stateinfo(stateinfo_id, stateinfo_name, csmg_id, state_id))
 
 def find_event_index(event_number, event_names):
-    """
-    Finds the index of an event name containing the specified number.
-    
-    Args:
-        event_number (int/str): The number to search for in event names (e.g., 3050 or "3050")
-        event_names (list): The list of event names to search through
-    
-    Returns:
-        int: The index of the matching event, or -1 if not found
-    """
-    search_str = str(event_number)  # Convert to string for searching
+    '''
+    Finds event_id from event_names list for transitionArray.
+    '''
+    #   Convert the event number param to a str
+    search_str = str(event_number)
+    #   For each line in event_names list...
     for index, name in enumerate(event_names):
+        #   If search_str matches the name of the current line, return that line index.
         if search_str in name:
             print(index)
             return index
-    return -1  # Return -1 if not found
+    #   Return -1 if not found
+    return -1  
 
 #####################
 if __name__ == "__main__":
