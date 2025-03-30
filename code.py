@@ -408,11 +408,13 @@ def add_event(anim_id):
     anim_id = str(anim_id)
     name = "Attack" + anim_id
     animationName = "a000_00" + anim_id
-    csmg_name = name + "_CSMG"
-    stateinfo_name = name + "_hkx_AutoSet_00"
+    csmg_name = name + "_CMSG"
+    #stateinfo_name = name + "_hkx_AutoSet_00"
+    clipgen_name = animationName + "_hkx_AutoSet_00"
     animInternalId = 1
-    userData = 21168131
-    state_id = 1
+    #userData = 21168131
+    userData = 1
+    state_id = 999
     clip_gen_id = "object" + str(last_obj() + 1)
     csmg_id = "object" + str(last_obj() + 2)
     stateinfo_id = "object" + str(last_obj() + 3)
@@ -421,7 +423,7 @@ def add_event(anim_id):
         {
             "target": "object10",
             "event_id": find_event_index(anim_id, event_names_list),
-            "state_id": 999
+            "state_id": state_id
         }
     ]
     
@@ -449,9 +451,10 @@ def add_event(anim_id):
     )
     print(transition_num, transition_line)
     modify_transition('new_c9997.xml', filter(wildcard_line, 'id="'), new_transitions)
-    append_xml(generate_clip_gen(clip_gen_id, name, animationName, animInternalId))
+    append_xml(generate_clip_gen(clip_gen_id, clipgen_name, animationName, animInternalId))
     append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
-    append_xml(generate_stateinfo(stateinfo_id, stateinfo_name, csmg_id, state_id))
+    #print(stateinfo_name)
+    append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
 
 def find_event_index(event_number, event_names):
     '''
