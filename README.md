@@ -2,8 +2,8 @@
 This is a python tool that automates the process of adding new 3XXX object entries into a c9997.xml file for an NPC behavior BND for Sekiro: Shadows Die Twice.
 This will make it so that if an enemy does not have a certain animation such as 3010, adding it via this tool will allow the game to call it for event and AI scripts.
 ## USAGE:
-
-python3 code.py {aXXX} {3XXX Beginning Range} {3XXX End Range}
+- Place your c9997.xml file into this folder.
+- Open up a terminal and run "python3 code.py {aXXX} {3XXX Beginning Range} {3XXX End Range}"
 
 ### Examples
 
