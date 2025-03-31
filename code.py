@@ -17,6 +17,8 @@ root = tree.getroot()
 #   Dupe c9997
 shutil.copy("c9997.xml", "new_c9997.xml")
 
+aXXX = 0
+
 def process_arguments():
     """
     Processes command line arguments and returns a validated list of numbers between 3000-3110.
@@ -36,18 +38,23 @@ def process_arguments():
     except ValueError:
         print("Error: All arguments must be numbers")
         sys.exit(1)
+        
+    global aXXX
+    aXXX = numbers[0]
     
     # Validate single number
-    if len(numbers) == 1:
-        num = numbers[0]
+    if len(numbers) == 2:
+        num = numbers[1]
         if 3000 <= num <= 3110:
             return [num]
         print(f"Ignoring {num} - must be between 3000-3110")
         return []
     
     # Validate range
-    elif len(numbers) == 2:
-        start, end = sorted(numbers)  # Handle reverse order automatically
+    elif len(numbers) == 3:
+        #start, end = sorted(numbers)  # Handle reverse order automatically
+        start = numbers[1]
+        end = numbers[2]
         if start < 3000 or end > 3110:
             print("Both numbers must be between 3000-3110")
             return []
@@ -234,6 +241,24 @@ def modify_transition(xml_file, object_id, new_transitions):
         f.writelines(lines)
     
     print(f"Successfully added {len(new_transitions)} transitions. New count: {new_count}")
+def largest_to_state_id():
+    """
+    Parses 'new_c9997.xml' and finds the largest integer value within:
+    <field name="toStateId"><integer value="X"/></field>
+    """
+    tree = ET.parse("new_c9997.xml")
+    root = tree.getroot()
+    max_value = -1
+    
+    for field in root.findall('.//field[@name="toStateId"]/integer'):
+        value = field.get('value')
+        if value is not None:
+            try:
+                max_value = max(max_value, int(value))
+            except ValueError:
+                continue  # Skip invalid values
+
+    return max_value
 
 def last_obj():
     """
@@ -405,19 +430,24 @@ def filter(line, search_str='="'):
     return "Not found."
 
 def add_event(anim_id):
+    #   Variables for text generation. Uses aXXX variation.
+    global aXXX
+    aXXX = str(aXXX)
     anim_id = str(anim_id)
     name = "Attack" + anim_id
-    animationName = "a000_00" + anim_id
+    animationName = "a" + aXXX + "00_00" + anim_id
     csmg_name = name + "_CMSG"
-    #stateinfo_name = name + "_hkx_AutoSet_00"
-    clipgen_name = animationName + "_hkx_AutoSet_00"
-    animInternalId = 1
-    #userData = 21168131
-    userData = 1
-    state_id = 999
+    clipgen_name = animationName + "_hkx_AutoSet_0" + aXXX
+    #   Find largest possible state_id and increment by 1
+    state_id = largest_to_state_id() + 1
+    #   Object IDs. Sets of each animation entry will always be by 3.
     clip_gen_id = "object" + str(last_obj() + 1)
     csmg_id = "object" + str(last_obj() + 2)
     stateinfo_id = "object" + str(last_obj() + 3)
+    #   Potentially unused?
+    animInternalId = 1
+    userData = 1
+    #   New pointer and transition text entries. Will probably be used later to add all entries in 1 search, but i'm too lazy for now.
     new_pointer_ids=[f'          <pointer id="{stateinfo_id}"/>']
     new_transitions = [
         {
@@ -450,10 +480,12 @@ def add_event(anim_id):
     target_pattern='  <object id="' + filter(wildcard_line, 'id="')
     )
     print(transition_num, transition_line)
+    #   MODIFY TRANSITION ARRAY WITH NEW TRANSITIONS
     modify_transition('new_c9997.xml', filter(wildcard_line, 'id="'), new_transitions)
+    #   APPEND OBJECTS
+    #   Clip_gens will always be generated. CSMG and stateinfo need to be checked in case there are pre-existing 3XXXs in different aXXX variations.
     append_xml(generate_clip_gen(clip_gen_id, clipgen_name, animationName, animInternalId))
     append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
-    #print(stateinfo_name)
     append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
 
 def find_event_index(event_number, event_names):
