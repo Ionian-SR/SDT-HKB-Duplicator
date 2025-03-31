@@ -13,9 +13,10 @@ python3 code.py {aXXX} {3XXX Beginning Range} {3XXX End Range}
   - This will generate a100_003000, a100_003001, a100_003002... a100_003005 entries.
 
 ## IMPORTANT NOTES:
-#### These issues will have to be fixed later.
-- This tool will NOT check if a pre-existing entry already exists. If 3000 already exists, don't try to add 3000.
-- This tool will NOT check if a pre-existing variation of 3XXX exists in a different aXXX.
+- This tool will check if an animation already exists.
+- This tool will also check if an animation in a different aXXX category exists.
+- This means you can run a000_003000 to a000_003100 if you wanted do with no issues.
+- This tool CANNOT add new entries of 3XXX in a specific aXXX category if that category does not exist. (Can't add a100_003000 to an NPC that doesn't even have a100 category)
 - Currently will spit out new_c9997.xml after running. This will be annoying to constantly rename, so I will add a proper backup system later.
 
 ## Other Documentation
