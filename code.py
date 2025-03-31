@@ -456,48 +456,44 @@ def add_event(anim_id):
             "state_id": state_id
         }
     ]
-    
-    #   FIND PARENT STATEINFO OF 3000
-    line_num, stateinfo_line = find_line(
-    start_pattern=['<field name="name"><string value="Attack3000"/></field>'],
-    direction='up',
-    target_pattern=' <object id='
-    )
-    print(filter(stateinfo_line))
-    #   ADD NEW OBJECT POINTERS TO PARENT STATEINFO ARRAY
-    add_pointer_to_array(f'          <pointer id="{filter(stateinfo_line)}"/>', new_pointer_ids)
-    #   FIND WILDCARD OBJECT ID
-    wildcard_num, wildcard_line = find_line(
-    start_pattern=['<pointer id="' + filter(stateinfo_line) + '"/>'],
-    direction='down',
-    target_pattern='<field name="wildcardTransitions"><pointer id='
-    )
-    print(filter(wildcard_line, 'id="'))
-    #   FIND TRANSITION ARRAY
-    transition_num, transition_line = find_line(
-    start_pattern= 0,
-    direction='down',
-    target_pattern='  <object id="' + filter(wildcard_line, 'id="')
-    )
-    print(transition_num, transition_line)
-    #   MODIFY TRANSITION ARRAY WITH NEW TRANSITIONS
-    modify_transition('new_c9997.xml', filter(wildcard_line, 'id="'), new_transitions)
-    #   APPEND OBJECTS
-    check_clip_gen_num, check_clip_gen_line = find_line(
-    start_pattern= 0,
-    direction='down',
-    target_pattern=f'string value="{animationName}"'
-    )
+    check_clip_gen_num, check_clip_gen_line = find_line(start_pattern= 0,direction='down',target_pattern=f'string value="{animationName}"')
     #   Check if there is pre-existing clipgen
     if check_clip_gen_line is None:
+        #   FIND PARENT STATEINFO OF 3000
+        line_num, stateinfo_line = find_line(
+        start_pattern=['<field name="name"><string value="Attack3000"/></field>'],
+        direction='up',
+        target_pattern=' <object id='
+        )
+        #   FIND WILDCARD OBJECT ID
+        wildcard_num, wildcard_line = find_line(
+        start_pattern=['<pointer id="' + filter(stateinfo_line) + '"/>'],
+        direction='down',
+        target_pattern='<field name="wildcardTransitions"><pointer id='
+        )
+        #print(filter(wildcard_line, 'id="'))
+        #   FIND TRANSITION ARRAY
+        transition_num, transition_line = find_line(
+        start_pattern= 0,
+        direction='down',
+        target_pattern='  <object id="' + filter(wildcard_line, 'id="')
+        )
+        #print(transition_num, transition_line)
+        #   APPEND OBJECTS
         append_xml(generate_clip_gen(clip_gen_id, clipgen_name, animationName, animInternalId))
-        check_cmsg_num, check_cmsg_line = find_line(start_pattern= 0, direction='down', target_pattern=f'string value="{csmg_name}"')
         #   Check to see if there is pre-existing CMSG.
+        check_cmsg_num, check_cmsg_line = find_line(start_pattern= 0, direction='down', target_pattern=f'string value="{csmg_name}"')
         if check_cmsg_line is None:
+            print(csmg_name + " does not exist. Creating CMSG and stateinfo object. Appending parent stateinfoArray. Modifying transitionArray.")
+             #   ADD NEW OBJECT POINTERS TO PARENT STATEINFO ARRAY
+            add_pointer_to_array(f'          <pointer id="{filter(stateinfo_line)}"/>', new_pointer_ids)
+            #   MODIFY TRANSITION ARRAY WITH NEW TRANSITIONS
+            modify_transition('new_c9997.xml', filter(wildcard_line, 'id="'), new_transitions)
             #   If there is NO pre-existing CMSG, just append CMSG and stateinfo obj normally.
             append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
             append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
         else:
+            print(csmg_name + " already exists. Adding clipgen to CMSG array...")
             #   If there is pre-existing CMSG, find the array and append the stateinfo obj
             check_cmsg_arr_num, check_cmsg_arr_line = find_line(
             start_pattern= check_cmsg_num,
@@ -505,7 +501,7 @@ def add_event(anim_id):
             target_pattern=f'<pointer id="')
             clip_gen_pointer_id=[f'          <pointer id="{clip_gen_id}"/>']
             add_pointer_to_array(check_cmsg_arr_line, clip_gen_pointer_id)
-            append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
+            #append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
     else:
         #   Cancel the appending
         print(animationName + " already exists.")
@@ -520,7 +516,7 @@ def find_event_index(event_number, event_names):
     for index, name in enumerate(event_names):
         #   If search_str matches the name of the current line, return that line index.
         if search_str in name:
-            print(index)
+            #print(index)
             return index
     #   Return -1 if not found
     return -1  
