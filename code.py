@@ -483,10 +483,32 @@ def add_event(anim_id):
     #   MODIFY TRANSITION ARRAY WITH NEW TRANSITIONS
     modify_transition('new_c9997.xml', filter(wildcard_line, 'id="'), new_transitions)
     #   APPEND OBJECTS
-    #   Clip_gens will always be generated. CSMG and stateinfo need to be checked in case there are pre-existing 3XXXs in different aXXX variations.
-    append_xml(generate_clip_gen(clip_gen_id, clipgen_name, animationName, animInternalId))
-    append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
-    append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
+    check_clip_gen_num, check_clip_gen_line = find_line(
+    start_pattern= 0,
+    direction='down',
+    target_pattern=f'string value="{animationName}"'
+    )
+    #   Check if there is pre-existing clipgen
+    if check_clip_gen_line is None:
+        append_xml(generate_clip_gen(clip_gen_id, clipgen_name, animationName, animInternalId))
+        check_cmsg_num, check_cmsg_line = find_line(start_pattern= 0, direction='down', target_pattern=f'string value="{csmg_name}"')
+        #   Check to see if there is pre-existing CMSG.
+        if check_cmsg_line is None:
+            #   If there is NO pre-existing CMSG, just append CMSG and stateinfo obj normally.
+            append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
+            append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
+        else:
+            #   If there is pre-existing CMSG, find the array and append the stateinfo obj
+            check_cmsg_arr_num, check_cmsg_arr_line = find_line(
+            start_pattern= check_cmsg_num,
+            direction='down',
+            target_pattern=f'<pointer id="')
+            clip_gen_pointer_id=[f'          <pointer id="{clip_gen_id}"/>']
+            add_pointer_to_array(check_cmsg_arr_line, clip_gen_pointer_id)
+            append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
+    else:
+        #   Cancel the appending
+        print(animationName + " already exists.")
 
 def find_event_index(event_number, event_names):
     '''
