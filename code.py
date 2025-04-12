@@ -260,6 +260,21 @@ def largest_to_state_id():
 
     return max_value
 
+def largest_userData():
+    tree = ET.parse("new_c9997.xml")
+    root = tree.getroot()
+    max_value = -1
+    
+    for field in root.findall('.//field[@name="userData"]/integer'):
+        value = field.get('value')
+        if value is not None:
+            try:
+                max_value = max(max_value, int(value))
+            except ValueError:
+                continue  # Skip invalid values
+
+    return max_value
+
 def last_obj():
     """
     Uses XML e tools and returns last object in XML. 
@@ -446,6 +461,7 @@ def add_event(anim_id):
     stateinfo_id = "object" + str(last_obj() + 3)
     #   Potentially unused?
     animInternalId = 1
+    #userData = largest_userData() + 1
     userData = 1
     #   New pointer and transition text entries. Will probably be used later to add all entries in 1 search, but i'm too lazy for now.
     new_pointer_ids=[f'          <pointer id="{stateinfo_id}"/>']
@@ -471,7 +487,6 @@ def add_event(anim_id):
         direction='down',
         target_pattern='<field name="wildcardTransitions"><pointer id='
         )
-        #print(filter(wildcard_line, 'id="'))
         #   FIND TRANSITION ARRAY
         transition_num, transition_line = find_line(
         start_pattern= 0,
