@@ -26,21 +26,21 @@ def process_arguments():
             if 3000 <= num <= 3109:
                 return [num]
             else:
-                messagebox.showinfo("错误！", f"忽略{num} - 动作编号必须在3000-3109范围内")
+                messagebox.showinfo("Error!", f"Ignore {num} - action numbers must be in the range 3000-3109")
                 return []
         elif len(numbers) == 3:
             start = numbers[1]
             end = numbers[2]
             if start < 3000 or end > 3109:
-                messagebox.showinfo("错误！", "起始和结束动作编号必须在3000-3109范围内")
+                messagebox.showinfo("Error!", "Ignore {num} - action numbers must be in the range 3000-3109")
                 return []
             else:
                 return list(range(start, end + 1))
         else:
-            messagebox.showinfo("错误！", "Error: Please enter two or three parameters")
+            messagebox.showinfo("Error!", "Error: Please enter two or three parameters")
             return []
     except ValueError:
-        messagebox.showinfo("错误！", "无效输入,请输入正常的动作编号")
+        messagebox.showinfo("Error!", "Invalid input, please enter a normal action number")
 
 def generate_clip_gen(objectId, name, animationName, animInternalId):
     xml_clip = f"""  
@@ -140,7 +140,7 @@ def modify_transition_attack(xml_file, object_id, new_transitions):
             break
     
     if object_start is None or object_end is None:
-        print(f"错误:无法找到object {object_id}")
+        print(f"Error: Unable to find object {object_id}")
         return
     
     # Find the transitions array within object500
@@ -163,7 +163,7 @@ def modify_transition_attack(xml_file, object_id, new_transitions):
             break
     
     if array_start is None or array_end is None:
-        print("错误: 无法找到transitions array")
+        print("Error: Unable to find transitions array")
         return
     
     # Extract current count
@@ -218,7 +218,7 @@ def modify_transition_attack(xml_file, object_id, new_transitions):
     with open(xml_file, 'w') as f:
         f.writelines(lines)
     
-    print(f"成功添加{anim_attackid}的transitions. 对应count: {new_count}")
+    print(f"Successfully added transitions for {anim_attackid}. Corresponding count: {new_count}")
 
 def modify_transition_event(xml_file, object_id, new_transitions):
     # Read the XML file
@@ -236,7 +236,7 @@ def modify_transition_event(xml_file, object_id, new_transitions):
             break
     
     if object_start is None or object_end is None:
-        print(f"错误:无法找到object {object_id}")
+        print(f"Error: Unable to find object {object_id}")
         return
     
     # Find the transitions array within object500
@@ -259,7 +259,7 @@ def modify_transition_event(xml_file, object_id, new_transitions):
             break
     
     if array_start is None or array_end is None:
-        print("错误: 无法找到transitions array")
+        print("Error: Unable to find transitions array")
         return
     
     # Extract current count
@@ -314,7 +314,7 @@ def modify_transition_event(xml_file, object_id, new_transitions):
     with open(xml_file, 'w') as f:
         f.writelines(lines)
     
-    print(f"成功添加{anim_eventid}的transitions. 对应count: {new_count}")
+    print(f"Successfully added transitions for {anim_eventid}. Corresponding count: {new_count}")
 
 def largest_to_state_id():
     """
@@ -373,7 +373,7 @@ def append_xml(content):
             break
     
     if hktagfile_pos is None:
-        raise ValueError("</hktagfile> tag 在文本中未找到")
+        raise ValueError("</hktagfile> tag not found in the text")
     
     #   Insert our content before this line, maintaining original indentation
     indent = lines[hktagfile_pos][:lines[hktagfile_pos].find('</hktagfile>')]
@@ -565,7 +565,7 @@ def add_event(anim_id):
         #   Check to see if there is pre-existing CMSG.
         check_cmsg_num, check_cmsg_line = find_line(start_pattern= 0, direction='down', target_pattern=f'string value="{csmg_name}"')
         if check_cmsg_line is None:
-            print(csmg_name + " 不存在. 生成 CMSG 和 stateinfo object中. parent stateinfoArray添加数据中. transitionArray修改中.")
+            print(csmg_name + " Does not exist. Generating CMSG and stateinfo object. Adding data to parent stateinfoArray. Modifying transitionArray.")
              #   ADD NEW OBJECT POINTERS TO PARENT STATEINFO ARRAY
             add_pointer_to_array(f'          <pointer id="{filter(stateinfo_line)}"/>', new_pointer_ids)
             #   MODIFY TRANSITION ARRAY WITH NEW TRANSITIONS
@@ -575,7 +575,7 @@ def add_event(anim_id):
             append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
             append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
         else:
-            print(csmg_name + "已存在. 修改添加CMSG array中")
+            print(csmg_name + "Already exists. Modify and add CMSG array中")
             #   If there is pre-existing CMSG, find the array and append the stateinfo obj
             check_cmsg_arr_num, check_cmsg_arr_line = find_line(
             start_pattern= check_cmsg_num,
@@ -586,7 +586,7 @@ def add_event(anim_id):
             #append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
     else:
         #   Cancel the appending
-        print(animationName + ".hkx已存在.")
+        print(animationName + ".hkx already exists.")
 
 def find_event_index(event_number, event_names):
     '''
@@ -611,7 +611,7 @@ def count_existing_strings(lines):
         if '<string value="..\\..\\..\\..\\..\\Model\\chr\\c9997\\hkx' in line:
             hkx_count += 1
             last_index = i
-    print(f"原文件已注册hkx个数:"+str(hkx_count))
+    print(f"The number of hkx registered in the original file:"+str(hkx_count))
     return hkx_count, last_index
 
 def insert_new_strings(lines, last_index, Axxx, start_value, end_value):
@@ -622,7 +622,7 @@ def insert_new_strings(lines, last_index, Axxx, start_value, end_value):
         new_string = f'          <string value="..\\..\\..\\..\\..\\Model\\chr\\c9997\\hkx\\a{str(Axxx)}00\\a{str(Axxx)}00_{i:06d}.hkx"/>\n'
         if new_string.strip() in existing_strings:
             existing_hkx_name = f'a{str(Axxx)}00_{i:06d}'
-            print(f"重复注册动作编号: {existing_hkx_name}.hkx")
+            print(f"Duplicate registration action number: {existing_hkx_name}.hkx")
         else:
             new_strings.append(new_string)
             existing_strings.add(new_string.strip())
@@ -631,7 +631,7 @@ def insert_new_strings(lines, last_index, Axxx, start_value, end_value):
 
 
 def update_first_array_count(lines):
-    """读取注册后的hkx计数后将原本的hkx计数替换"""
+    """Read the registered hkx count and replace the original hkx count"""
     field_tag_found = False
     updated_lines = []
     new_hkx_count = 0
@@ -645,7 +645,7 @@ def update_first_array_count(lines):
             line = re.sub(r'<array count="\d+"', f'<array count="{new_hkx_count}"', line, count=1)
             field_tag_found = False
         updated_lines.append(line)
-    print(f"新文件已注册hkx数:"+str(new_hkx_count))
+    print(f"New file registered hkx number:"+str(new_hkx_count))
     return updated_lines
 
 def hkx_register():
@@ -657,24 +657,24 @@ def hkx_register():
         end_value = int(entry3.get())
     with open(new_c9997_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
-    print(f"开始hkx注册")
+    print(f"Start hkx registration")
     hkx_count, last_index = count_existing_strings(lines)
     lines_with_new_strings = insert_new_strings(lines, last_index, Axxx, start_value, end_value)
     updated_lines = update_first_array_count(lines_with_new_strings)
     with open(new_c9997_path, 'w', encoding='utf-8') as file:
         file.writelines(updated_lines)
-    print(f"hkx注册完成,事件可调用")
+    print(f"hkx registration completed, event can be called")
 
 def select_file():
     global selected_file_path, gyzcount, selected_file_path_one, new_c9997_path, folder_path
     gyzcount = 0
     filepath = filedialog.askopenfilename(
-        title="选择c9997.xml",
+        title="Select c9997.xml",
         filetypes=[("XML Files", "*.xml")]
     )
     if filepath:
         if os.path.basename(filepath) != "c9997.xml":
-            messagebox.showerror("错误", "文件必须为c9997.xml")
+            messagebox.showerror("Error", "File must be c9997.xml")
             selected_file_path = None
         else:
             selected_file_path = filepath
@@ -682,7 +682,7 @@ def select_file():
             folder_path = os.path.dirname(selected_file_path_one)
             new_c9997_path = os.path.join(folder_path, "new_c9997.xml")
             shutil.copy(selected_file_path_one, new_c9997_path)
-            messagebox.showinfo("成功", f"c9997.xml已选择")
+            messagebox.showinfo("Success", f"c9997.xml has been selected")
 
 
 def event_names(input_file_path):
@@ -715,7 +715,7 @@ def event_names(input_file_path):
                 file.write(f'    {idx} = "{line}",\n')
         file.write(']\n')
 
-    print(f"已将注册的event name全部导出到eventNames.txt中")
+    print(f"All registered event names have been exported to eventNames.txt")
 
 def animationid_count(animationName):
     with open(new_c9997_path, 'r', encoding='utf-8') as file:
@@ -741,21 +741,21 @@ def animationid_count(animationName):
     
 def show_welcome_window():
     welcome_window = tk.Toplevel()
-    welcome_window.title("只狼NPC动作注册工具V0.0")
+    welcome_window.title("Sekiro NPC Behavior Registration Tool V0.1")
 
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
-    window_width = 600
-    window_height = 600
+    window_width = 800
+    window_height = 800
     position_top = int((screen_height - window_height) / 2)
     position_left = int((screen_width - window_width) / 2)
     welcome_window.geometry(f'{window_width}x{window_height}+{position_left}+{position_top}')
 
     font1 = ('Times New Roman', 12)
     font2 = ('Times New Roman', 14)
-    label = tk.Label(welcome_window, text="欢迎使用只狼NPC动作注册工具!当前工具版本V0.1\n本工具由只狼复兴mod作者制作,由Last孤影众汉化优化打包", font=font1)
+    label = tk.Label(welcome_window, text="Welcome to use the Sekiro NPC Behavior registration tool! \nThis tool is made by Ionian, and is optimized and packaged by Last孤影众丶\n(https://space.bilibili.com/436916463)", font=font1)
     label.pack(pady=5)
-    label = tk.Label(welcome_window, text="本工具可对任意敌人进行3000~3109动作注册,可AI和事件调用\n可在cmd窗口查看具体修改内容", font=font1)
+    label = tk.Label(welcome_window, text="This tool can register 3000~3109 actions for any enemy, and can be called by AI and events\nYou can view the logs in the cmd window", font=font1)
     label.pack(pady=5)
 
     img = Image.open("hunfive.jpg")
@@ -770,7 +770,7 @@ def show_welcome_window():
         welcome_window.destroy()
         root.deiconify()
 
-    confirm_button = tk.Button(welcome_window, text="确定", command=on_confirm, font=font2)
+    confirm_button = tk.Button(welcome_window, text="Okay", command=on_confirm, font=font2)
     confirm_button.pack()
     welcome_window.protocol("WM_DELETE_WINDOW", lambda: (welcome_window.destroy(), root.deiconify()))
     
@@ -782,7 +782,7 @@ def submit():
     gyzcount_name = str(gyzcount)
     if not selected_file_path:
         if not os.path.exists('c9997.xml'):
-            messagebox.showinfo("错误！", f"错误:当前目录找不到文件c9997.xml")
+            messagebox.showinfo("Error！", f"Error: The file c9997.xml cannot be found in the current directory")
             return
         else:
             selected_file_path = os.path.join(os.path.dirname(sys.argv[0]), "c9997.xml")
@@ -798,43 +798,43 @@ def submit():
     result = process_arguments()
     hkx_register()
     if result:
-        print("本次生成动作编号如下:", result)
+        print("The action numbers generated this time are as follows:", result)
         for entry in result:
             add_event(entry)
     else:
-        print("没有找到有效的动作编号")
+        print("No valid action number found")
     
     selected_file_path = new_c9997_path
-    print("当前生成动作次数："+ gyzcount_name + ", 可继续点击生成按钮在新文件基础上注册动作"+ '\n' + "若重新选择文件则重新注册动作")
+    print("Current number of generated actions："+ gyzcount_name + ", You can click the Generate button to register the action based on the new file"+ '\n' + "If you reselect the file, re-register the action")
 
 global gyzcount
 gyzcount = 0
 
 root = tk.Tk()
-root.title("只狼NPC动作注册工具")
+root.title("Sekiro NPC Action Registration Tool")
 
 root.geometry("600x400")
 
 screen_width = root.winfo_screenwidth()
 screen_height = root.winfo_screenheight()
-window_width = 600
-window_height = 400
+window_width = 800
+window_height = 600
 position_top = int((screen_height - window_height) / 2)
 position_left = int((screen_width - window_width) / 2)
 root.geometry(f'{window_width}x{window_height}+{position_left}+{position_top}')
 font = ('Times New Roman', 14)
 
-tk.Label(root, text="请输入动作组编号:例如输入3则生成a300", font=font).pack(pady=(20, 5))
+tk.Label(root, text="Please enter the action offset: for example, enter '3' to generate a300", font=font).pack(pady=(20, 5))
 entry1 = tk.Entry(root, font=font)
 entry1.insert(0, "3")
 entry1.pack(pady=5)
 
-tk.Label(root, text="请输入起始动作编号(3000~3109)", font=font).pack(pady=(20, 5))
+tk.Label(root, text="Please enter the starting action number (3000~3109)", font=font).pack(pady=(20, 5))
 entry2 = tk.Entry(root, font=font)
 entry2.insert(0, "3000")
 entry2.pack(pady=5)
 
-tk.Label(root, text="请输入结束动作编号(3000~3109)", font=font).pack(pady=(20, 5))
+tk.Label(root, text="Please enter the ending action number (3000~3109)", font=font).pack(pady=(20, 5))
 entry3 = tk.Entry(root, font=font)
 entry3.insert(0, "")
 entry3.pack(pady=5)
@@ -844,10 +844,10 @@ entries = [entry1, entry2, entry3]
 button_frame = tk.Frame(root)
 button_frame.pack(pady=10)
 
-button1 = tk.Button(button_frame, text="选择文件", command=select_file, font=('Times New Roman', 14))
+button1 = tk.Button(button_frame, text="Select File", command=select_file, font=('Times New Roman', 14))
 button1.pack(side='left', padx=20)
 
-button2 = tk.Button(button_frame, text="生成", command=submit, font=('Times New Roman', 14))
+button2 = tk.Button(button_frame, text="Generate", command=submit, font=('Times New Roman', 14))
 button2.pack(side='right', padx=20)
 
 root.withdraw() 
