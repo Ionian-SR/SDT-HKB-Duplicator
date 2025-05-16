@@ -3,3 +3,5 @@ venv
 *.spec
 /build
 /dist
+/src/build
+/src/dist
