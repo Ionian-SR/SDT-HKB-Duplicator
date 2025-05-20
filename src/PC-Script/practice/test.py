@@ -1,9 +1,11 @@
 import xml.etree.ElementTree as ET
+from lxml import etree
 
 class XMLParser:
     def __init__(self, xml_file):
         self.xml_file = xml_file
-        self.tree = ET.parse(xml_file)
+        parser = etree.XMLParser(remove_blank_text=False)
+        self.tree = etree.parse(xml_file, parser)
         self.root = self.tree.getroot()
 
     def find_array_count(self, obj_id, field_name):
@@ -42,10 +44,10 @@ class XMLParser:
         Args:
             obj_id (str): The ID of the object containing the field.
             field_name (str): The name of the field containing the array.
-            new_element (str, ET.Element): The value to append (string for <string>, pointer ID for <pointer>, or XML element).
+            new_element (str, etree._Element): The value to append (string for <string>, pointer ID for <pointer>, or XML element).
             is_pointer (bool): If True, the new value will be added as a <pointer>.
         """
-        # Locate the specific object by ID
+        # Locate the object by ID
         obj = self.root.find(f".//object[@id='{obj_id}']")
 
         if obj is not None:
@@ -53,19 +55,24 @@ class XMLParser:
             for field in obj.findall(f".//field[@name='{field_name}']"):
                 array = field.find("array")
                 if array is not None:
-                    # Determine the type of the new element
-                    if isinstance(new_element, ET.Element):
-                        # Directly append the XML element
+                    
+                    # Current count of elements in the array
+                    current_count = int(array.attrib.get("count", "0"))
+
+                    # Handle XML Element directly
+                    if isinstance(new_element, etree._Element):
+                        # Directly append the new XML node
                         array.append(new_element)
+
                     elif is_pointer:
                         # Append as <pointer>
-                        ET.SubElement(array, "pointer", id=new_element)
+                        etree.SubElement(array, "pointer", id=str(new_element))
+
                     else:
                         # Append as <string>
-                        ET.SubElement(array, "string", value=new_element)
+                        etree.SubElement(array, "string", value=str(new_element))
 
                     # Update the count attribute
-                    current_count = int(array.attrib.get("count", "0"))
                     new_count = current_count + 1
                     array.set("count", str(new_count))
 
@@ -222,7 +229,6 @@ class XMLParser:
         print(f"Object with ID '{obj_id}' not found.")
         return None, []
 
-
     def _trace(self, obj_id, visited, referenced_objects, trace_limit=4):
         """
         Recursively traces objects that reference the given object ID.
@@ -267,21 +273,24 @@ class XMLParser:
         """
         # Generate new object ID
         new_id = f"object{self.get_largest_obj() + 1}"
-        new_obj = ET.Element("object", id=new_id, typeid=obj_data["typeid"])
+        
+        # Create the new object using lxml.etree
+        new_obj = etree.Element("object", id=new_id, typeid=obj_data["typeid"])
         new_obj.text = "\n  "
         new_obj.tail = "\n"
-        record = ET.SubElement(new_obj, "record")
+        
+        record = etree.SubElement(new_obj, "record")
         record.text = "\n    "
         record.tail = "\n"
 
         # Iterate through the fields
         for field_name, field_value in obj_data["fields"].items():
-            field = ET.SubElement(record, "field", name=field_name)
+            field = etree.SubElement(record, "field", name=field_name)
 
             # Handle arrays
             if isinstance(field_value, dict) and field_value.get("type") == "array":
                 array_data = field_value
-                array_element = ET.SubElement(
+                array_element = etree.SubElement(
                     field, 
                     "array", 
                     count=str(array_data["count"]), 
@@ -294,16 +303,12 @@ class XMLParser:
                     if item["type"] == "pointer":
                         pointer_id = item["id"]
 
-                        # Locate and duplicate the referenced object
-                        #referenced_obj = self.root.find(f".//object[@id='{pointer_id}']")
-                        #if referenced_obj is not None:
-                        #    referenced_data = self.collect_object_data(referenced_obj)
-                        #    self.duplicate_object(referenced_data, new_name + "_arr_ptr")
+                        # Handle specific array field replacement
+                        if field_name == "generators":
+                            pointer_id = new_clipgen_pointer_id
 
-                        pointer_id = new_clipgen_pointer_id
-
-                        # Create the pointer element in the array
-                        ET.SubElement(array_element, "pointer", id=pointer_id)
+                        # Append the pointer element
+                        etree.SubElement(array_element, "pointer", id=pointer_id)
 
                 field.tail = "\n    "
 
@@ -311,17 +316,11 @@ class XMLParser:
             elif isinstance(field_value, dict) and field_value.get("type") == "pointer":
                 pointer_id = field_value["id"]
 
-                # Locate and duplicate the referenced object
-                #referenced_obj = self.root.find(f".//object[@id='{pointer_id}']")
-                #if referenced_obj is not None:
-                #    referenced_data = self.collect_object_data(referenced_obj)
-                #    self.duplicate_object(referenced_data, new_name + "_ptr")
+                # Handle specific pointer replacements
                 if field_name == "generator":
                     pointer_id = new_csmg_pointer_id
-                else:
-                    pointer_id = pointer_id
-                # Create the pointer element
-                ET.SubElement(field, "pointer", id=pointer_id)
+
+                etree.SubElement(field, "pointer", id=pointer_id)
                 field.tail = "\n    "
 
             # Handle string fields
@@ -332,10 +331,12 @@ class XMLParser:
                     value = new_clipgen_name
                 else:
                     value = field_value
-                ET.SubElement(field, "string", value=value)
 
+                etree.SubElement(field, "string", value=value)
+
+            # Handle boolean fields
             elif isinstance(field_value, bool):
-                ET.SubElement(field, "bool", value="true" if field_value else "false")
+                etree.SubElement(field, "bool", value="true" if field_value else "false")
 
             # Handle integer fields
             elif isinstance(field_value, int):
@@ -350,11 +351,11 @@ class XMLParser:
                 else:
                     value = str(field_value)
 
-                ET.SubElement(field, "integer", value=value)
+                etree.SubElement(field, "integer", value=value)
 
             # Handle real/float fields
             elif isinstance(field_value, float):
-                ET.SubElement(field, "real", dec=str(field_value), hex="#0")
+                etree.SubElement(field, "real", dec=str(field_value), hex="#0")
 
             # Ensure new line after each </field>
             field.tail = "\n    "
@@ -393,120 +394,165 @@ class XMLParser:
             state_id (str): The state ID.
 
         Returns:
-            ET.Element: The generated transition entry as an XML Element.
+            etree._Element: The generated transition entry as an XML Element.
         """
-        record = ET.Element("record")
-        #record.set("type", "hkbStateMachine::TransitionInfo")
+        record = etree.Element("record")
         record.text = "\n    "
 
         # Trigger Interval
-        trigger_interval = ET.SubElement(record, "field", name="triggerInterval")
+        trigger_interval = etree.SubElement(record, "field", name="triggerInterval")
         trigger_interval.text = "\n      "
         trigger_interval.tail = "\n    "
         
-        interval_record = ET.SubElement(trigger_interval, "record")
+        interval_record = etree.SubElement(trigger_interval, "record")
         interval_record.text = "\n        "
         interval_record.tail = "\n      "
         
-        enter_event_field = ET.SubElement(interval_record, "field", name="enterEventId")
-        ET.SubElement(enter_event_field, "integer", value="-1")
+        enter_event_field = etree.SubElement(interval_record, "field", name="enterEventId")
+        etree.SubElement(enter_event_field, "integer", value="-1")
         enter_event_field.tail = "\n        "
 
-        exit_event_field = ET.SubElement(interval_record, "field", name="exitEventId")
-        ET.SubElement(exit_event_field, "integer", value="-1")
+        exit_event_field = etree.SubElement(interval_record, "field", name="exitEventId")
+        etree.SubElement(exit_event_field, "integer", value="-1")
         exit_event_field.tail = "\n        "
 
-        enter_time_field = ET.SubElement(interval_record, "field", name="enterTime")
-        ET.SubElement(enter_time_field, "real", dec="0", hex="#0")
+        enter_time_field = etree.SubElement(interval_record, "field", name="enterTime")
+        etree.SubElement(enter_time_field, "real", dec="0", hex="#0")
         enter_time_field.tail = "\n        "
 
-        exit_time_field = ET.SubElement(interval_record, "field", name="exitTime")
-        ET.SubElement(exit_time_field, "real", dec="0", hex="#0")
+        exit_time_field = etree.SubElement(interval_record, "field", name="exitTime")
+        etree.SubElement(exit_time_field, "real", dec="0", hex="#0")
         exit_time_field.tail = "\n      "
 
-
         # Initiate Interval
-        initiate_interval = ET.SubElement(record, "field", name="initiateInterval")
+        initiate_interval = etree.SubElement(record, "field", name="initiateInterval")
         initiate_interval.text = "\n      "
         initiate_interval.tail = "\n    "
         
-        init_record = ET.SubElement(initiate_interval, "record")
+        init_record = etree.SubElement(initiate_interval, "record")
         init_record.text = "\n        "
         init_record.tail = "\n      "
         
-        enter_event_field = ET.SubElement(init_record, "field", name="enterEventId")
-        ET.SubElement(enter_event_field, "integer", value="-1")
+        enter_event_field = etree.SubElement(init_record, "field", name="enterEventId")
+        etree.SubElement(enter_event_field, "integer", value="-1")
         enter_event_field.tail = "\n        "
 
-        exit_event_field = ET.SubElement(init_record, "field", name="exitEventId")
-        ET.SubElement(exit_event_field, "integer", value="-1")
+        exit_event_field = etree.SubElement(init_record, "field", name="exitEventId")
+        etree.SubElement(exit_event_field, "integer", value="-1")
         exit_event_field.tail = "\n        "
 
-        enter_time_field = ET.SubElement(init_record, "field", name="enterTime")
-        ET.SubElement(enter_time_field, "real", dec="0", hex="#0")
+        enter_time_field = etree.SubElement(init_record, "field", name="enterTime")
+        etree.SubElement(enter_time_field, "real", dec="0", hex="#0")
         enter_time_field.tail = "\n        "
 
-        exit_time_field = ET.SubElement(init_record, "field", name="exitTime")
-        ET.SubElement(exit_time_field, "real", dec="0", hex="#0")
+        exit_time_field = etree.SubElement(init_record, "field", name="exitTime")
+        etree.SubElement(exit_time_field, "real", dec="0", hex="#0")
         exit_time_field.tail = "\n      "
 
-
         # Transition
-        transition_field = ET.SubElement(record, "field", name="transition")
+        transition_field = etree.SubElement(record, "field", name="transition")
         transition_field.text = "\n      "
-        ET.SubElement(transition_field, "pointer", id=str(transition_id))
+        etree.SubElement(transition_field, "pointer", id=str(transition_id))
         transition_field.tail = "\n    "
 
         # Condition
-        condition_field = ET.SubElement(record, "field", name="condition")
+        condition_field = etree.SubElement(record, "field", name="condition")
         condition_field.text = "\n      "
-        ET.SubElement(condition_field, "pointer", id="object0")
+        etree.SubElement(condition_field, "pointer", id="object0")
         condition_field.tail = "\n    "
 
         # Event ID
-        event_field = ET.SubElement(record, "field", name="eventId")
+        event_field = etree.SubElement(record, "field", name="eventId")
         event_field.text = "\n      "
-        ET.SubElement(event_field, "integer", value=str(event_id))
+        etree.SubElement(event_field, "integer", value=str(event_id))
         event_field.tail = "\n    "
 
         # State ID
-        state_field = ET.SubElement(record, "field", name="toStateId")
+        state_field = etree.SubElement(record, "field", name="toStateId")
         state_field.text = "\n      "
-        ET.SubElement(state_field, "integer", value=str(state_id))
+        etree.SubElement(state_field, "integer", value=str(state_id))
         state_field.tail = "\n    "
 
         # Other fields
-        from_nested_state_field = ET.SubElement(record, "field", name="fromNestedStateId")
-        ET.SubElement(from_nested_state_field, "integer", value="0")
+        from_nested_state_field = etree.SubElement(record, "field", name="fromNestedStateId")
+        etree.SubElement(from_nested_state_field, "integer", value="0")
         from_nested_state_field.tail = "\n        "
 
-        to_nested_state_field = ET.SubElement(record, "field", name="toNestedStateId")
-        ET.SubElement(to_nested_state_field, "integer", value="0")
+        to_nested_state_field = etree.SubElement(record, "field", name="toNestedStateId")
+        etree.SubElement(to_nested_state_field, "integer", value="0")
         to_nested_state_field.tail = "\n        "
 
-        priority_field = ET.SubElement(record, "field", name="priority")
-        ET.SubElement(priority_field, "integer", value="0")
+        priority_field = etree.SubElement(record, "field", name="priority")
+        etree.SubElement(priority_field, "integer", value="0")
         priority_field.tail = "\n        "
 
-        flags_field = ET.SubElement(record, "field", name="flags")
-        ET.SubElement(flags_field, "integer", value="3584")
+        flags_field = etree.SubElement(record, "field", name="flags")
+        etree.SubElement(flags_field, "integer", value="3584")
         flags_field.tail = "\n      "
-
 
         record.tail = "\n  "
 
         return record
 
+    def generate_event_info_entry(self):
+        """
+        Generates an event info entry as an XML Element with proper formatting.
+
+        Returns:
+            etree._Element: The generated event info entry as an XML Element.
+        """
+        # Create the record element
+        record = etree.Element("record")
+        record.text = "\n    "  # Indentation for formatting
+
+        # Create the field for 'flags'
+        flags_field = etree.SubElement(record, "field", name="flags")
+        flags_field.text = "\n      "
+        flags_field.tail = "\n    "
+
+        # Add the integer element inside the flags field
+        etree.SubElement(flags_field, "integer", value="0")
+
+        record.tail = "\n  "  # Proper indentation after the record
+
+        return record
 
     def save_xml(self, output_file=None):
         output_file = output_file if output_file else self.xml_file
-        self.tree.write(output_file, encoding="utf-8", xml_declaration=True)
+        self.tree.write(
+            output_file, 
+            encoding="utf-8", 
+            xml_declaration=True, 
+            pretty_print=True
+        )
         print(f"XML file saved as '{output_file}'")
+
+def update_xml_header(file_path):
+    """
+    Updates the XML declaration header to the specified format.
+
+    Args:
+        file_path (str): The path to the XML file to be modified.
+    """
+    with open(file_path, "r", encoding="utf-8") as file:
+        content = file.read()
+
+    # Replace the header
+    new_content = content.replace(
+        "<?xml version='1.0' encoding='UTF-8'?>",
+        '<?xml version="1.0" encoding="utf-8"?>'
+    )
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(new_content)
+
+    print(f"Updated header in '{file_path}'")
+
 
 if __name__ == "__main__":
     xml_file = 'c0000.xml'  # Update this with your XML file path
     parser = XMLParser(xml_file)
-
+    
     #   Find selected object
     obj_data, traced_objects = parser.find_object_by_name("a050_300040")
 
@@ -523,11 +569,7 @@ if __name__ == "__main__":
 
     new_toStateId = parser.get_largest_toStateId() + 1
     new_userData = parser.get_largest_userData() + 1
-    eventInfo_entry = f"""
-    <record> 
-        <field name="flags"><integer value="0" /></field>
-    </record>
-    """
+    eventInfo_entry = parser.generate_event_info_entry()
 
     #   Append new animation to animationNames array. Update Count. Take new internalID.
     #   Object 7 contains animationNames eventInfos, and eventNames
@@ -539,7 +581,7 @@ if __name__ == "__main__":
     new_eventNames_count = parser.find_array_count("object7", "eventNames")
 
     #   Append eventInfos
-    parser.append_to_array("object4", "eventInfos", f"{eventInfo_entry}", is_pointer=False)
+    parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
     new_eventInfos_count = parser.find_array_count("object4", "eventInfos") - 1
 
     #   Append new stateInfo object to stateMachine object
@@ -569,5 +611,6 @@ if __name__ == "__main__":
                 parser.duplicate_object(obj_data2, new_stateinfo_name)
         
     parser.save_xml()
+    update_xml_header(xml_file)
         
     
