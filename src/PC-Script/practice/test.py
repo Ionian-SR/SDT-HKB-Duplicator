@@ -532,7 +532,7 @@ if __name__ == "__main__":
     #   Append new animation to animationNames array. Update Count. Take new internalID.
     #   Object 7 contains animationNames eventInfos, and eventNames
     parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\a{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
-    new_animationInternalId = parser.find_array_count("object7", "animationNames")
+    new_animationInternalId = parser.find_array_count("object7", "animationNames") - 1
 
     #   Append eventNames
     parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
@@ -540,7 +540,7 @@ if __name__ == "__main__":
 
     #   Append eventInfos
     parser.append_to_array("object4", "eventInfos", f"{eventInfo_entry}", is_pointer=False)
-    new_eventInfos_count = parser.find_array_count("object4", "eventInfos")
+    new_eventInfos_count = parser.find_array_count("object4", "eventInfos") - 1
 
     #   Append new stateInfo object to stateMachine object
     parser.append_to_array(traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
@@ -550,7 +550,7 @@ if __name__ == "__main__":
     #   Find wildcard pointer ID
     wildcard_object_id = parser.get_wildcard_transition(statemachine_object)
     #   Generate a new transition entry and append it
-    new_entry = parser.generate_transition_entry(new_eventInfos_count, "object236", new_toStateId)
+    new_entry = parser.generate_transition_entry("object236", new_eventInfos_count, new_toStateId)
     parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
 
     #   If there is a clipGen object...
