@@ -76,8 +76,6 @@ class XMLParser:
         else:
             print(f"Object with ID '{obj_id}' not found.")
 
-
-
     def get_largest_obj(self):
         last_num = -1
         for obj in self.root.findall('.//object'):
@@ -94,6 +92,18 @@ class XMLParser:
     def get_largest_toStateId(self):
         max_value = -1
         for field in self.root.findall('.//field[@name="toStateId"]/integer'):
+            value = field.get('value')
+            if value is not None:
+                try:
+                    max_value = max(max_value, int(value))
+                except ValueError:
+                    continue  # Skip invalid values
+
+        return max_value
+    
+    def get_largest_userData(self):
+        max_value = -1
+        for field in self.root.findall('.//field[@name="userData"]/integer'):
             value = field.get('value')
             if value is not None:
                 try:
@@ -335,6 +345,8 @@ class XMLParser:
                     value = str(new_anim_id)
                 elif field_name == "stateId":
                     value = str(new_toStateId)
+                elif field_name == "userData":
+                    value = str(new_userData)
                 else:
                     value = str(field_value)
 
@@ -510,6 +522,7 @@ if __name__ == "__main__":
     new_stateinfo_pointer_id = f"object{parser.get_largest_obj() + 3}"
 
     new_toStateId = parser.get_largest_toStateId() + 1
+    new_userData = parser.get_largest_userData() + 1
     eventInfo_entry = f"""
     <record> 
         <field name="flags"><integer value="0" /></field>
