@@ -5,3 +5,4 @@ venv
 /dist
 /src/build
 /src/dist
+__pycache__/
