@@ -27,17 +27,17 @@ def update_xml_header(file_path):
 def run_parser():
     a_offset = entry_a_offset.get()
     new_anim_id = entry_anim_id.get()
-    new_name = entry_new_name.get()
-    new_csmg_name = f"{new_name}_CSMG"
-    new_stateinfo_name = entry_stateinfo_name.get()
+    #entry_new_name = entry_new_name.get()
+    new_csmg_name = f"{entry_new_name.get()}_CSMG"
+    new_stateinfo_name = f"{entry_new_name.get()}"
     new_clipgen_name = f"a{a_offset}_{new_anim_id}"
     new_event_name = f"W_{new_stateinfo_name}"
-    select_clipgen_name = entry_clipgen_name.get()
+    select_name = entry_select_name.get()
     xml_file = 'c0000.xml'  # Update this with your XML file path
     parser = XMLParser(xml_file)
     
     #   Find selected object
-    obj_data, traced_objects = parser.find_object_by_name(select_clipgen_name)
+    obj_data, traced_objects = parser.find_object_by_name(select_name)
 
     #a_offset = f"050"
     #new_anim_id = f"300050"
@@ -115,21 +115,25 @@ def run_parser():
 root = tk.Tk()
 root.title("XML Animation Modifier")
 
-tk.Label(root, text="Type in animation ID to duplicate").grid(row=0, column=0, sticky="e")
-entry_clipgen_name = tk.Entry(root)
-entry_clipgen_name.grid(row=4, column=1)
+tk.Label(root, text="Type in animation ID to duplicate (Example: a050_300040)").grid(row=0, column=0, sticky="e")
+entry_select_name = tk.Entry(root)
+entry_select_name.grid(row=0, column=1)
+entry_select_name.insert(0, "a050_300040")
 
-tk.Label(root, text="Animation offset ('050', '101', etc)").grid(row=1, column=0, sticky="e")
+tk.Label(root, text="Animation offset (Example: '050', '101')").grid(row=1, column=0, sticky="e")
 entry_a_offset = tk.Entry(root)
-entry_a_offset.grid(row=0, column=1)
+entry_a_offset.grid(row=1, column=1)
+entry_a_offset.insert(0, "050")
 
-tk.Label(root, text="New Animation ID").grid(row=2, column=0, sticky="e")
+tk.Label(root, text="New Animation ID (Example: 300050)").grid(row=2, column=0, sticky="e")
 entry_anim_id = tk.Entry(root)
-entry_anim_id.grid(row=1, column=1)
+entry_anim_id.grid(row=2, column=1)
+entry_anim_id.insert(0, "300050")
 
-tk.Label(root, text="New Animation Name").grid(row=3, column=0, sticky="e")
+tk.Label(root, text="New Animation Name (Example: GroundAttackCombo6)").grid(row=3, column=0, sticky="e")
 entry_new_name = tk.Entry(root)
-entry_new_name.grid(row=2, column=1)
+entry_new_name.grid(row=3, column=1)
+entry_new_name.insert(0, "GroundAttackCombo6")
 
 # tk.Label(root, text="new_csmg_name").grid(row=3, column=0, sticky="e")
 # entry_csmg_name = tk.Entry(root)
