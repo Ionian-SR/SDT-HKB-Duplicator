@@ -1,5 +1,7 @@
 import xml.etree.ElementTree as ET
 from xml_parser import XMLParser
+import tkinter as tk
+from tkinter import ttk
 
 def update_xml_header(file_path):
     """
@@ -21,19 +23,28 @@ def update_xml_header(file_path):
         file.write(new_content)
 
     print(f"Updated header in '{file_path}'")
-if __name__ == "__main__":
+
+def run_parser():
+    a_offset = entry_a_offset.get()
+    new_anim_id = entry_anim_id.get()
+    new_name = entry_new_name.get()
+    new_csmg_name = f"{new_name}_CSMG"
+    new_stateinfo_name = entry_stateinfo_name.get()
+    new_clipgen_name = f"a{a_offset}_{new_anim_id}"
+    new_event_name = f"W_{new_stateinfo_name}"
+    select_clipgen_name = entry_clipgen_name.get()
     xml_file = 'c0000.xml'  # Update this with your XML file path
     parser = XMLParser(xml_file)
     
     #   Find selected object
-    obj_data, traced_objects = parser.find_object_by_name("a050_300040")
+    obj_data, traced_objects = parser.find_object_by_name(select_clipgen_name)
 
-    a_offset = f"050"
-    new_anim_id = f"300050"
-    new_csmg_name = f"GroundAttackCombo6_CMSG"
-    new_clipgen_name = f"a{a_offset}_{new_anim_id}"
-    new_stateinfo_name = f"GroundAttackCombo6"
-    new_event_name = f"W_{new_stateinfo_name}"
+    #a_offset = f"050"
+    #new_anim_id = f"300050"
+    #new_csmg_name = f"GroundAttackCombo6_CMSG"
+    #new_clipgen_name = f"a{a_offset}_{new_anim_id}"
+    #new_stateinfo_name = f"GroundAttackCombo6"
+    #new_event_name = f"W_{new_stateinfo_name}"
 
     new_clipgen_pointer_id = f"object{parser.get_largest_obj() + 1}"
     new_csmg_pointer_id = f"object{parser.get_largest_obj() + 2}"
@@ -100,4 +111,46 @@ if __name__ == "__main__":
     parser.save_xml()
     update_xml_header(xml_file)
         
-    
+# ----- UI Setup -----
+root = tk.Tk()
+root.title("XML Animation Modifier")
+
+tk.Label(root, text="Type in animation ID to duplicate").grid(row=0, column=0, sticky="e")
+entry_clipgen_name = tk.Entry(root)
+entry_clipgen_name.grid(row=4, column=1)
+
+tk.Label(root, text="Animation offset ('050', '101', etc)").grid(row=1, column=0, sticky="e")
+entry_a_offset = tk.Entry(root)
+entry_a_offset.grid(row=0, column=1)
+
+tk.Label(root, text="New Animation ID").grid(row=2, column=0, sticky="e")
+entry_anim_id = tk.Entry(root)
+entry_anim_id.grid(row=1, column=1)
+
+tk.Label(root, text="New Animation Name").grid(row=3, column=0, sticky="e")
+entry_new_name = tk.Entry(root)
+entry_new_name.grid(row=2, column=1)
+
+# tk.Label(root, text="new_csmg_name").grid(row=3, column=0, sticky="e")
+# entry_csmg_name = tk.Entry(root)
+# entry_csmg_name.grid(row=2, column=1)
+
+# tk.Label(root, text="new_stateinfo_name").grid(row=4, column=0, sticky="e")
+# entry_stateinfo_name = tk.Entry(root)
+# entry_stateinfo_name.grid(row=3, column=1)
+
+# Arbitrary checkboxes for future logic
+checkbox_vars = []
+for i, label in enumerate(["Extra Transition", "Enable Debug", "Log Only"]):
+    var = tk.BooleanVar()
+    chk = tk.Checkbutton(root, text=label, variable=var)
+    chk.grid(row=5 + i, columnspan=2, sticky="w")
+    checkbox_vars.append(var)
+
+run_button = tk.Button(root, text="Run", command=run_parser)
+run_button.grid(row=8, columnspan=2, pady=10)
+
+result_label = tk.Label(root, text="")
+result_label.grid(row=9, columnspan=2)
+
+root.mainloop()
