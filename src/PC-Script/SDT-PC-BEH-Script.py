@@ -1,869 +1,103 @@
-import re
 import xml.etree.ElementTree as ET
-import shutil
-import sys
-import tkinter as tk
-from tkinter import messagebox, filedialog
-import os
-import xml.etree.ElementTree as ET
-from PIL import Image, ImageTk
+from xml_parser import XMLParser
 
-aXXX = 0
-selected_file_path = None
-
-def resource_path(relative_path):
+def update_xml_header(file_path):
     """
-    Get the absolute path to a resource file, whether running as a .py or .exe.
-    """
-    try:
-        # PyInstaller stores files in a temp folder named _MEIPASS
-        base_path = sys._MEIPASS
-    except AttributeError:
-        base_path = os.path.abspath(".")
-
-    return os.path.join(base_path, relative_path)
-
-def process_arguments():
-    try:
-        numbers = []
-        for entry in entries:
-            if entry.get().strip():
-                numbers.append(int(entry.get().strip()))
-        
-        global aXXX
-        aXXX = numbers[0] if numbers else None
-
-        if len(numbers) == 2:
-            num = numbers[1]
-            if 3000 <= num <= 3109:
-                return [num]
-            else:
-                messagebox.showinfo("Error!", f"Ignore {num} - action numbers must be in the range 3000-3109")
-                return []
-        elif len(numbers) == 3:
-            start = numbers[1]
-            end = numbers[2]
-            if start < 3000 or end > 3109:
-                messagebox.showinfo("Error!", "Ignore {num} - action numbers must be in the range 3000-3109")
-                return []
-            else:
-                return list(range(start, end + 1))
-        else:
-            messagebox.showinfo("Error!", "Error: Please enter two or three parameters")
-            return []
-    except ValueError:
-        messagebox.showinfo("Error!", "Invalid input, please enter a normal action number")
-
-def generate_clip_gen(objectId, name, animationName, animInternalId):
-    xml_clip = f"""  
-    <object id="{objectId}" typeid="type211" > <!-- hkbClipGenerator -->
-        <record> <!-- hkbClipGenerator -->
-            <field name="propertyBag">
-                <array count="0" elementtypeid="type15"> <!-- ArrayOf hkDefaultPropertyBag -->
-                </array>
-            </field>
-            <field name="variableBindingSet"><pointer id="object0"/></field>
-            <field name="userData"><integer value="0"/></field>
-            <field name="name"><string value="{name}"/></field>
-            <field name="animationName"><string value="{animationName}"/></field>
-            <field name="triggers"><pointer id="object0"/></field>
-            <field name="userPartitionMask"><integer value="0"/></field>
-            <field name="cropStartAmountLocalTime"><real dec="0" hex="#0"/></field>
-            <field name="cropEndAmountLocalTime"><real dec="0" hex="#0"/></field>
-            <field name="startTime"><real dec="0" hex="#0"/></field>
-            <field name="playbackSpeed"><real dec="1" hex="#3ff0000000000000"/></field>
-            <field name="enforcedDuration"><real dec="0" hex="#0"/></field>
-            <field name="userControlledTimeFraction"><real dec="0" hex="#0"/></field>
-            <field name="mode"><integer value="0"/><!-- MODE_SINGLE_PLAY --></field>
-            <field name="flags"><integer value="0"/></field>
-            <field name="animationInternalId"><integer value="{animInternalId}"/></field>
-        </record>
-    </object>"""
-    return xml_clip
-
-def generate_csmg(objectId, name, userData, pointer, animId):
-    xml_csmg = f"""
-    <object id="{objectId}" typeid="type200" > <!-- CustomManualSelectorGenerator -->
-        <record> <!-- CustomManualSelectorGenerator -->
-            <field name="propertyBag">
-                <array count="0" elementtypeid="type15"> <!-- ArrayOf hkDefaultPropertyBag -->
-                </array>
-            </field>
-            <field name="variableBindingSet"><pointer id="object0"/></field>
-            <field name="userData"><integer value="{userData}"/></field>
-            <field name="name"><string value="{name}"/></field>
-            <field name="generators">
-                <array count="1" elementtypeid="type41"> <!-- ArrayOf T*< hkbGenerator > -->
-                <pointer id="{pointer}"/>
-                </array>
-            </field>
-            <field name="offsetType"><integer value="15"/><!-- AnimIdOffset --></field>
-            <field name="animId"><integer value="{animId}"/></field>
-            <field name="animeEndEventType"><integer value="3"/><!-- None --></field>
-            <field name="enableScript"><bool value="true"/></field>
-            <field name="enableTae"><bool value="true"/></field>
-            <field name="changeTypeOfSelectedIndexAfterActivate"><integer value="1"/><!-- SELF_TRANSITION --></field>
-            <field name="generatorChangedTransitionEffect"><pointer id="object0"/></field>
-            <field name="checkAnimEndSlotNo"><integer value="1"/></field>
-            <field name="replanningAI"><integer value="0"/><!-- Enable --></field>
-        </record>
-    </object>"""
-    return xml_csmg
-
-def generate_stateinfo(objectId, name, pointer, stateId):
-    xml_stateinfo = f"""
-    <object id="{objectId}" typeid="type115" > <!-- hkbStateMachine::StateInfo -->
-        <record> <!-- hkbStateMachine::StateInfo -->
-            <field name="propertyBag">
-                <array count="0" elementtypeid="type15"> <!-- ArrayOf hkDefaultPropertyBag -->
-                </array>
-            </field>
-            <field name="variableBindingSet"><pointer id="object0"/></field>
-            <field name="listeners">
-                <array count="0" elementtypeid="type123"> <!-- ArrayOf T*< hkbStateListener > -->
-                </array>
-            </field>
-            <field name="enterNotifyEvents"><pointer id="object0"/></field>
-            <field name="exitNotifyEvents"><pointer id="object0"/></field>
-            <field name="transitions"><pointer id="object0"/></field>
-            <field name="generator"><pointer id="{pointer}"/></field>
-            <field name="name"><string value="{name}"/></field>
-            <field name="stateId"><integer value="{stateId}"/></field>
-            <field name="probability"><real dec="1" hex="#3ff0000000000000"/></field>
-            <field name="enable"><bool value="true"/></field>
-        </record>
-    </object>
-    """
-    return xml_stateinfo
-    
-def modify_transition_attack(xml_file, object_id, new_transitions):
-    # Read the XML file
-    with open(xml_file, 'r') as f:
-        lines = f.readlines()
-    
-    # Find the object500 section
-    object_start = None
-    object_end = None
-    for i, line in enumerate(lines):
-        if f'<object id="{object_id}"' in line:
-            object_start = i
-        elif object_start is not None and '</object>' in line:
-            object_end = i
-            break
-    
-    if object_start is None or object_end is None:
-        print(f"Error: Unable to find object {object_id}")
-        return
-    
-    # Find the transitions array within object500
-    array_start = None
-    array_end = None
-    for i in range(object_start, object_end):
-        if '<field name="transitions">' in lines[i]:
-            # Find the opening array tag (could be same line or next line)
-            if '<array ' in lines[i]:
-                array_start = i
-            else:
-                array_start = i + 1
-            
-            # Find the closing array tag
-            indent = lines[array_start][:lines[array_start].find('<')]
-            for j in range(array_start, object_end):
-                if f'{indent}</array>' in lines[j]:
-                    array_end = j
-                    break
-            break
-    
-    if array_start is None or array_end is None:
-        print("Error: Unable to find transitions array")
-        return
-    
-    # Extract current count
-    array_line = lines[array_start]
-    count_start = array_line.find('count="') + 7
-    count_end = array_line.find('"', count_start)
-    current_count = int(array_line[count_start:count_end])
-    new_count = current_count + len(new_transitions)
-    
-    # Update the count in the array tag
-    lines[array_start] = array_line.replace(
-        f'count="{current_count}"',
-        f'count="{new_count}"'
-    )
-    
-    # Prepare new transition entries
-    new_entries = []
-    for transition in new_transitions:
-        new_entry = f"""\
-        <record> <!-- hkbStateMachine::TransitionInfo -->
-            <field name="triggerInterval">
-              <record> <!-- hkbStateMachine::TimeInterval -->
-                <field name="enterEventId"><integer value="-1"/></field>
-                <field name="exitEventId"><integer value="-1"/></field>
-                <field name="enterTime"><real dec="0" hex="#0"/></field>
-                <field name="exitTime"><real dec="0" hex="#0"/></field>
-              </record>
-            </field>
-            <field name="initiateInterval">
-              <record> <!-- hkbStateMachine::TimeInterval -->
-                <field name="enterEventId"><integer value="-1"/></field>
-                <field name="exitEventId"><integer value="-1"/></field>
-                <field name="enterTime"><real dec="0" hex="#0"/></field>
-                <field name="exitTime"><real dec="0" hex="#0"/></field>
-              </record>
-            </field>
-            <field name="transition"><pointer id="{transition['target']}"/></field>
-            <field name="condition"><pointer id="object0"/></field>
-            <field name="eventId"><integer value="{transition['attack_id']}"/></field>
-            <field name="toStateId"><integer value="{transition['state_id']}"/></field>
-            <field name="fromNestedStateId"><integer value="0"/></field>
-            <field name="toNestedStateId"><integer value="0"/></field>
-            <field name="priority"><integer value="0"/></field>
-            <field name="flags"><integer value="3584"/></field>
-          </record>"""
-        new_entries.extend([line + '\n' for line in new_entry.split('\n')])
-    
-    # Insert new entries before the closing array tag
-    lines[array_end:array_end] = new_entries
-    
-    # Write the modified file
-    with open(xml_file, 'w') as f:
-        f.writelines(lines)
-    
-    print(f"Successfully added transitions for {anim_attackid}. Corresponding count: {new_count}")
-
-def modify_transition_event(xml_file, object_id, new_transitions):
-    # Read the XML file
-    with open(xml_file, 'r') as f:
-        lines = f.readlines()
-    
-    # Find the object500 section
-    object_start = None
-    object_end = None
-    for i, line in enumerate(lines):
-        if f'<object id="{object_id}"' in line:
-            object_start = i
-        elif object_start is not None and '</object>' in line:
-            object_end = i
-            break
-    
-    if object_start is None or object_end is None:
-        print(f"Error: Unable to find object {object_id}")
-        return
-    
-    # Find the transitions array within object500
-    array_start = None
-    array_end = None
-    for i in range(object_start, object_end):
-        if '<field name="transitions">' in lines[i]:
-            # Find the opening array tag (could be same line or next line)
-            if '<array ' in lines[i]:
-                array_start = i
-            else:
-                array_start = i + 1
-            
-            # Find the closing array tag
-            indent = lines[array_start][:lines[array_start].find('<')]
-            for j in range(array_start, object_end):
-                if f'{indent}</array>' in lines[j]:
-                    array_end = j
-                    break
-            break
-    
-    if array_start is None or array_end is None:
-        print("Error: Unable to find transitions array")
-        return
-    
-    # Extract current count
-    array_line = lines[array_start]
-    count_start = array_line.find('count="') + 7
-    count_end = array_line.find('"', count_start)
-    current_count = int(array_line[count_start:count_end])
-    new_count = current_count + len(new_transitions)
-    
-    # Update the count in the array tag
-    lines[array_start] = array_line.replace(
-        f'count="{current_count}"',
-        f'count="{new_count}"'
-    )
-    
-    # Prepare new transition entries
-    new_entries = []
-    for transition in new_transitions:
-        new_entry = f"""\
-        <record> <!-- hkbStateMachine::TransitionInfo -->
-            <field name="triggerInterval">
-              <record> <!-- hkbStateMachine::TimeInterval -->
-                <field name="enterEventId"><integer value="-1"/></field>
-                <field name="exitEventId"><integer value="-1"/></field>
-                <field name="enterTime"><real dec="0" hex="#0"/></field>
-                <field name="exitTime"><real dec="0" hex="#0"/></field>
-              </record>
-            </field>
-            <field name="initiateInterval">
-              <record> <!-- hkbStateMachine::TimeInterval -->
-                <field name="enterEventId"><integer value="-1"/></field>
-                <field name="exitEventId"><integer value="-1"/></field>
-                <field name="enterTime"><real dec="0" hex="#0"/></field>
-                <field name="exitTime"><real dec="0" hex="#0"/></field>
-              </record>
-            </field>
-            <field name="transition"><pointer id="{transition['target']}"/></field>
-            <field name="condition"><pointer id="object0"/></field>
-            <field name="eventId"><integer value="{transition['event_id']}"/></field>
-            <field name="toStateId"><integer value="{transition['state_id']}"/></field>
-            <field name="fromNestedStateId"><integer value="0"/></field>
-            <field name="toNestedStateId"><integer value="0"/></field>
-            <field name="priority"><integer value="0"/></field>
-            <field name="flags"><integer value="3584"/></field>
-          </record>"""
-        new_entries.extend([line + '\n' for line in new_entry.split('\n')])
-    
-    # Insert new entries before the closing array tag
-    lines[array_end:array_end] = new_entries
-    
-    # Write the modified file
-    with open(xml_file, 'w') as f:
-        f.writelines(lines)
-    
-    print(f"Successfully added transitions for {anim_eventid}. Corresponding count: {new_count}")
-
-def largest_to_state_id():
-    """
-    Parses 'new_c9997.xml' and finds the largest integer value within:
-    <field name="toStateId"><integer value="X"/></field>
-    """
-    tree = ET.parse(new_c9997_path)
-    root = tree.getroot()
-    max_value = -1
-    
-    for field in root.findall('.//field[@name="toStateId"]/integer'):
-        value = field.get('value')
-        if value is not None:
-            try:
-                max_value = max(max_value, int(value))
-            except ValueError:
-                continue  # Skip invalid values
-
-    return max_value
-
-def last_obj():
-    """
-    Uses XML e tools and returns last object in XML. 
-    This is the only function that uses XML e tools.
-    """
-    tree = ET.parse(new_c9997_path)
-    root = tree.getroot()
-    last_num = -1
-    #last_full_id = None
-    
-    for obj in root.findall('.//object'):
-        obj_id = obj.get('id')
-        if obj_id and obj_id.startswith('object'):
-            try:
-                current_num = int(obj_id[6:])
-                if current_num > last_num:
-                    last_num = current_num
-                    #last_full_id = obj_id
-            except ValueError:
-                continue
-    
-    return last_num
-def append_xml(content):
-    """
-    Appends string at the end of the xml file, right before the hktagfile.
-    """
-    #   Read the entire file
-    with open(new_c9997_path, 'r') as f:
-        lines = f.readlines()
-    
-    #   Find the last line containing </hktagfile>
-    hktagfile_pos = None
-    for i, line in enumerate(reversed(lines)):
-        if '</hktagfile>' in line:
-            hktagfile_pos = len(lines) - i - 1
-            break
-    
-    if hktagfile_pos is None:
-        raise ValueError("</hktagfile> tag not found in the text")
-    
-    #   Insert our content before this line, maintaining original indentation
-    indent = lines[hktagfile_pos][:lines[hktagfile_pos].find('</hktagfile>')]
-    formatted_content = indent + content.rstrip('\n') + '\n'
-    
-    # Insert the new content
-    lines.insert(hktagfile_pos, formatted_content)
-    
-    # Write the modified file back
-    with open(new_c9997_path, 'w') as f:
-        f.writelines(lines)
-
-def find_line(start_pattern, direction='down', target_pattern=None, stop_pattern=None):
-    """
-    Searches new_c9997.xml for a line matching start_pattern or starts at a given line number,
-    then looks up/down for another line.
+    Updates the XML declaration header to the specified format.
 
     Args:
-        start_pattern: String, list of strings, or integer. If an integer, it represents the starting line number.
-        direction: 'up' or 'down' to search from the starting point.
-        target_pattern: String or list of strings to find in the search direction.
-        stop_pattern: String or list of strings that will stop the search if encountered.
-
-    Returns:
-        tuple: (found_line_number, found_line_content) or (None, None)
+        file_path (str): The path to the XML file to be modified.
     """
-    def pattern_match(line, patterns):
-        if patterns is None:
-            return False
-        if isinstance(patterns, str):
-            return patterns in line
-        return any(p in line for p in patterns)
-    
-    with open(new_c9997_path, 'r') as f:
-        lines = f.readlines()
-    
-    # Determine starting line number
-    if isinstance(start_pattern, int):
-        if 0 <= start_pattern < len(lines):
-            start_line = start_pattern
-        else:
-            return None, None
-    else:
-        start_line = next((i for i, line in enumerate(lines) 
-                          if pattern_match(line, start_pattern)), None)
-    
-    if start_line is None:
-        return None, None
-    
-    # Determine search range
-    if direction == 'up':
-        search_range = range(start_line - 1, -1, -1)  # To start of file
-    else:
-        search_range = range(start_line + 1, len(lines))  # To end of file
-    
-    # Search in the specified direction
-    for i in search_range:
-        current_line = lines[i]
-        
-        if pattern_match(current_line, stop_pattern):
-            return None, None
-            
-        if pattern_match(current_line, target_pattern):
-            return i, current_line.strip()
-    
-    return None, None
-def add_pointer_to_array(start_object_id: str,new_pointer_ids: list,file_path: str = "new_c9997.xml") -> bool:
-    """
-    Adds new pointer entries to an array before the closing </array> tag.
-    
-    Args:
-        start_object_id: Existing pointer ID to locate the array (e.g. "object490")
-        new_pointer_ids: List of new IDs to add (e.g. ["object500", "object501"])
-        file_path: Path to XML file
-        
-    Returns:
-        bool: True if successful, False if failed
-    """
-    with open(new_c9997_path, 'r+') as f:
-        lines = f.readlines()
-        f.seek(0)
-        array_start = -1
-        array_end = -1
-        indent = "          "  # Match your indentation
-        
-        # Find the array containing the start_object_id
-        for i, line in enumerate(lines):
-            if start_object_id in line:
-                # Search backward for array start
-                for j in range(i, -1, -1):
-                    if '<array count=' in lines[j]:
-                        array_start = j
-                        break
-                # Search forward for array end
-                for j in range(i, len(lines)):
-                    if '</array>' in lines[j]:
-                        array_end = j
-                        break
-                break
-        
-        if array_start == -1 or array_end == -1:
-            return False
-        
-        # Update array count
-        count_line = lines[array_start]
-        old_count = int(count_line.split('count="')[1].split('"')[0])
-        new_count = old_count + len(new_pointer_ids)
-        lines[array_start] = count_line.replace(
-            f'count="{old_count}"',
-            f'count="{new_count}"'
-        )
-        
-        # Insert new pointers before </array>
-        new_lines = [f'{pid}\n' for pid in new_pointer_ids]
-        lines[array_end:array_end] = new_lines
-        
-        # Write modified content
-        f.writelines(lines)
-        f.truncate()
-        return True
-def filter(line, search_str='="'):
-    """
-    Filters all the text from the selected line, except for keywords such as array count or "objectXXX"
-    """
-    if line is not None:
-        id_start = line.find(search_str) + len(search_str)
-        id_end = line.find('"', id_start)
-        return line[id_start:id_end]
-    return "Not found."
-
-def add_event(anim_id):
-    #   Variables for text generation. Uses aXXX variation.
-    global aXXX, anim_attackid, anim_eventid
-    aXXX = str(aXXX)
-    with open(event_names_path, "r") as file:
+    with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
-    event_names_list = re.findall(r'"(.*?)"', content)
-    anim_id = str(anim_id)
-    anim_attackid = "W_Attack" + anim_id
-    anim_eventid = "W_Event" + anim_id
-    name = "Attack" + anim_id
-    animationName = "a" + aXXX + "00_00" + anim_id
-    csmg_name = name + "_CMSG"
-    clipgen_name = animationName + "_hkx_AutoSet_0" + aXXX
-    #   Find largest possible state_id and increment by 1
-    state_id = largest_to_state_id() + 1
-    #   Object IDs. Sets of each animation entry will always be by 3.
-    clip_gen_id = "object" + str(last_obj() + 1)
-    csmg_id = "object" + str(last_obj() + 2)
-    stateinfo_id = "object" + str(last_obj() + 3)
-    #   Potentially unused?
-    animInternalId = animationid_count(animationName)
-    userData = 1
-    #   New pointer and transition text entries. Will probably be used later to add all entries in 1 search, but i'm too lazy for now.
-    new_pointer_ids=[f'          <pointer id="{stateinfo_id}"/>']
-    new_transitions = [
-        {
-            "target": "object10",
-            "attack_id": find_event_index(anim_attackid, event_names_list),
-            "event_id": find_event_index(anim_eventid, event_names_list),
-            "state_id": state_id
-        }
-    ]
-    check_clip_gen_num, check_clip_gen_line = find_line(start_pattern= 0,direction='down',target_pattern=f'string value="{animationName}"')
-    #   Check if there is pre-existing clipgen
-    if check_clip_gen_line is None:
-        #   FIND PARENT STATEINFO OF 3000
-        line_num, stateinfo_line = find_line(
-        start_pattern=['<field name="name"><string value="Attack3000"/></field>'],
-        direction='up',
-        target_pattern=' <object id='
-        )
-        #   FIND WILDCARD OBJECT ID
-        wildcard_num, wildcard_line = find_line(
-        start_pattern=['<pointer id="' + filter(stateinfo_line) + '"/>'],
-        direction='down',
-        target_pattern='<field name="wildcardTransitions"><pointer id='
-        )
-        #print(filter(wildcard_line, 'id="'))
-        #   FIND TRANSITION ARRAY
-        transition_num, transition_line = find_line(
-        start_pattern= 0,
-        direction='down',
-        target_pattern='  <object id="' + filter(wildcard_line, 'id="')
-        )
-        #print(transition_num, transition_line)
-        #   APPEND OBJECTS
-        append_xml(generate_clip_gen(clip_gen_id, clipgen_name, animationName, animInternalId))
-        #   Check to see if there is pre-existing CMSG.
-        check_cmsg_num, check_cmsg_line = find_line(start_pattern= 0, direction='down', target_pattern=f'string value="{csmg_name}"')
-        if check_cmsg_line is None:
-            print(csmg_name + " Does not exist. Generating CMSG and stateinfo object. Adding data to parent stateinfoArray. Modifying transitionArray.")
-             #   ADD NEW OBJECT POINTERS TO PARENT STATEINFO ARRAY
-            add_pointer_to_array(f'          <pointer id="{filter(stateinfo_line)}"/>', new_pointer_ids)
-            #   MODIFY TRANSITION ARRAY WITH NEW TRANSITIONS
-            modify_transition_attack(new_c9997_path, filter(wildcard_line, 'id="'), new_transitions)
-            modify_transition_event(new_c9997_path, filter(wildcard_line, 'id="'), new_transitions)
-            #   If there is NO pre-existing CMSG, just append CMSG and stateinfo obj normally.
-            append_xml(generate_csmg(csmg_id, csmg_name, userData, clip_gen_id, anim_id))
-            append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
-        else:
-            print(csmg_name + "Already exists. Modify and add CMSG array中")
-            #   If there is pre-existing CMSG, find the array and append the stateinfo obj
-            check_cmsg_arr_num, check_cmsg_arr_line = find_line(
-            start_pattern= check_cmsg_num,
-            direction='down',
-            target_pattern=f'<pointer id="')
-            clip_gen_pointer_id=[f'          <pointer id="{clip_gen_id}"/>']
-            add_pointer_to_array(check_cmsg_arr_line, clip_gen_pointer_id)
-            #append_xml(generate_stateinfo(stateinfo_id, name, csmg_id, state_id))
-    else:
-        #   Cancel the appending
-        print(animationName + ".hkx already exists.")
 
-def find_event_index(event_number, event_names):
-    '''
-    Finds event_id from event_names list for transitionArray.
-    '''
-    #   Convert the event number param to a str
-    search_str = str(event_number)
-    #   For each line in event_names list...
-    for index, name in enumerate(event_names):
-        #   If search_str matches the name of the current line, return that line index.
-        if search_str in name:
-            #print(index)
-            return index
-    #   Return -1 if not found
-    return -1  
-
-def count_existing_strings(lines):
-    """数注册的hkx个数,用于填写hkx"""
-    hkx_count = 0
-    last_index = -1
-    for i, line in enumerate(lines):
-        if '<string value="..\\..\\..\\..\\..\\Model\\chr\\c9997\\hkx' in line:
-            hkx_count += 1
-            last_index = i
-    print(f"The number of hkx registered in the original file:"+str(hkx_count))
-    return hkx_count, last_index
-
-def insert_new_strings(lines, last_index, Axxx, start_value, end_value):
-    """在末尾注册 hkx"""
-    new_strings = []
-    existing_strings = set(line.strip() for line in lines if '          <string value="' in line)
-    for i in range(start_value, end_value + 1):
-        new_string = f'          <string value="..\\..\\..\\..\\..\\Model\\chr\\c9997\\hkx\\a{str(Axxx)}00\\a{str(Axxx)}00_{i:06d}.hkx"/>\n'
-        if new_string.strip() in existing_strings:
-            existing_hkx_name = f'a{str(Axxx)}00_{i:06d}'
-            print(f"Duplicate registration action number: {existing_hkx_name}.hkx")
-        else:
-            new_strings.append(new_string)
-            existing_strings.add(new_string.strip())
-    lines_with_new_strings = lines[:last_index+1] + new_strings + lines[last_index+1:]
-    return lines_with_new_strings
-
-
-def update_first_array_count(lines):
-    """Read the registered hkx count and replace the original hkx count"""
-    field_tag_found = False
-    updated_lines = []
-    new_hkx_count = 0
-    for i, line in enumerate(lines):
-        if '<string value="..\\..\\..\\..\\..\\Model\\chr\\c9997\\hkx' in line:
-            new_hkx_count += 1
-    for line in lines:
-        if '<field name="animationNames">' in line:
-            field_tag_found = True
-        if field_tag_found and '<array count="' in line:
-            line = re.sub(r'<array count="\d+"', f'<array count="{new_hkx_count}"', line, count=1)
-            field_tag_found = False
-        updated_lines.append(line)
-    print(f"New file registered hkx number:"+str(new_hkx_count))
-    return updated_lines
-
-def hkx_register():
-    Axxx = entry1.get()
-    start_value = int(entry2.get())
-    if entry3.get() == "":
-        end_value = start_value
-    else:
-        end_value = int(entry3.get())
-    with open(new_c9997_path, 'r', encoding='utf-8') as file:
-        lines = file.readlines()
-    print(f"Start hkx registration")
-    hkx_count, last_index = count_existing_strings(lines)
-    lines_with_new_strings = insert_new_strings(lines, last_index, Axxx, start_value, end_value)
-    updated_lines = update_first_array_count(lines_with_new_strings)
-    with open(new_c9997_path, 'w', encoding='utf-8') as file:
-        file.writelines(updated_lines)
-    print(f"hkx registration completed, event can be called")
-
-def select_file():
-    global selected_file_path, gyzcount, selected_file_path_one, new_c9997_path, folder_path
-    gyzcount = 0
-    filepath = filedialog.askopenfilename(
-        title="Select c9997.xml",
-        filetypes=[("XML Files", "*.xml")]
+    # Replace the header
+    new_content = content.replace(
+        "<?xml version='1.0' encoding='UTF-8'?>",
+        '<?xml version="1.0" encoding="utf-8"?>'
     )
-    if filepath:
-        if os.path.basename(filepath) != "c9997.xml":
-            messagebox.showerror("Error", "File must be c9997.xml")
-            selected_file_path = None
-        else:
-            selected_file_path = filepath
-            selected_file_path_one = selected_file_path
-            folder_path = os.path.dirname(selected_file_path_one)
-            new_c9997_path = os.path.join(folder_path, "new_c9997.xml")
-            shutil.copy(selected_file_path_one, new_c9997_path)
-            messagebox.showinfo("Success", f"c9997.xml has been selected")
 
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(new_content)
 
-def event_names(input_file_path):
-    input_dir = os.path.dirname(input_file_path)
-    output_file_path = os.path.join(input_dir, 'event_names.txt')
-    with open(input_file_path, 'r', encoding='utf-8') as file:
-        xml_data = file.read()
-    start_tag = '<field name="eventNames">'
-    end_tag = '</field>'
-    start_index = xml_data.find(start_tag)
-    end_index = xml_data.find(end_tag, start_index) + len(end_tag)
-    field_content = xml_data[start_index:end_index]
-    root = ET.fromstring(field_content)
-    event_names = [elem.attrib['value'] for elem in root.findall(".//string")]
-
-    converted_content = 'event_names = [\n'
-    for name in event_names:
-        converted_content += f'    "{name}",\n'
-    converted_content += ']'
-
-    lines = converted_content.splitlines()
-    lines = [line for line in lines if line.strip() != 'event_names = [' and line.strip() != ']']
-
-    with open(output_file_path, 'w', encoding='utf-8') as file:
-        file.write('event_names = [\n')
-        for idx, line in enumerate(lines):
-            line = line.strip().replace("\"", "")
-            line = line.rstrip(',')
-            if line:
-                file.write(f'    {idx} = "{line}",\n')
-        file.write(']\n')
-
-    print(f"All registered event names have been exported to eventNames.txt")
-
-def animationid_count(animationName):
-    with open(new_c9997_path, 'r', encoding='utf-8') as file:
-        lines = file.readlines()
-
-    animation_start_index = -1
-    animation_end_index = -1
-    animationName_index = -1
-    for index, line in enumerate(lines):
-        if '<field name="animationNames">' in line:
-            animation_start_index = index + 1 
-            break
-    for index in range(animation_start_index, len(lines)):
-        if '</field>' in lines[index]:
-            animation_end_index = index + 1
-            break
-    for index in range(animation_start_index, animation_end_index):
-        if animationName in lines[index]:
-            animationName_index = index + 1
-            break
-    animationid = animationName_index - animation_start_index - 2
-    return(animationid)
+    print(f"Updated header in '{file_path}'")
+if __name__ == "__main__":
+    xml_file = 'c0000.xml'  # Update this with your XML file path
+    parser = XMLParser(xml_file)
     
-def show_welcome_window():
-    welcome_window = tk.Toplevel()
-    welcome_window.title("Sekiro NPC Behavior Registration Tool V0.1")
+    #   Find selected object
+    obj_data, traced_objects = parser.find_object_by_name("a050_300040")
 
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    window_width = 800
-    window_height = 800
-    position_top = int((screen_height - window_height) / 2)
-    position_left = int((screen_width - window_width) / 2)
-    welcome_window.geometry(f'{window_width}x{window_height}+{position_left}+{position_top}')
+    a_offset = f"050"
+    new_anim_id = f"300050"
+    new_csmg_name = f"GroundAttackCombo6_CMSG"
+    new_clipgen_name = f"a{a_offset}_{new_anim_id}"
+    new_stateinfo_name = f"GroundAttackCombo6"
+    new_event_name = f"W_{new_stateinfo_name}"
 
-    font1 = ('Times New Roman', 12)
-    font2 = ('Times New Roman', 14)
-    label = tk.Label(welcome_window, text="Welcome to use the Sekiro NPC Behavior registration tool! \nThis tool is made by Ionian, and is optimized and packaged by Last孤影众丶\n(https://space.bilibili.com/436916463)", font=font1)
-    label.pack(pady=5)
-    label = tk.Label(welcome_window, text="This tool can register 3000~3109 actions for any enemy, and can be called by AI and events\nYou can view the logs in the cmd window", font=font1)
-    label.pack(pady=5)
-    img_path = resource_path("hunfive.jpg")
-    img = Image.open(img_path)
-    img = img.resize((400, 400), Image.Resampling.LANCZOS)
-    photo = ImageTk.PhotoImage(img)
+    new_clipgen_pointer_id = f"object{parser.get_largest_obj() + 1}"
+    new_csmg_pointer_id = f"object{parser.get_largest_obj() + 2}"
+    new_stateinfo_pointer_id = f"object{parser.get_largest_obj() + 3}"
 
-    img_label = tk.Label(welcome_window, image=photo)
-    img_label.photo = photo
-    img_label.pack(pady=10)
+    new_toStateId = parser.get_largest_toStateId() + 1
+    new_userData = parser.get_largest_userData() + 1
+    eventInfo_entry = parser.generate_event_info_entry()
 
-    def on_confirm():
-        welcome_window.destroy()
-        root.deiconify()
+    #   Append new animation to animationNames array. Update Count. Take new internalID.
+    #   Object 7 contains animationNames eventInfos, and eventNames
+    parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\a{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
+    new_animationInternalId = parser.find_array_count("object7", "animationNames") - 1
 
-    confirm_button = tk.Button(welcome_window, text="Okay", command=on_confirm, font=font2)
-    confirm_button.pack()
-    welcome_window.protocol("WM_DELETE_WINDOW", lambda: (welcome_window.destroy(), root.deiconify()))
+    #   Append eventNames
+    parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
+    new_eventNames_count = parser.find_array_count("object7", "eventNames")
+
+    #   Append eventInfos
+    parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
+    new_eventInfos_count = parser.find_array_count("object4", "eventInfos") - 1
+
+    #   Append new stateInfo object to stateMachine object
+    parser.append_to_array(traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
+
+    #   Collect Statemachine information
+    statemachine_object = parser.find_object_by_id(traced_objects[2])
+    #   Find wildcard pointer ID
+    wildcard_object_id = parser.get_wildcard_transition(statemachine_object)
+    #   Generate a new transition entry and append it
+    new_entry = parser.generate_transition_entry("object236", new_eventInfos_count, new_toStateId)
+    parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
+
+    #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
+    config = {
+        "new_clipgen_pointer_id": new_clipgen_pointer_id,
+        "new_csmg_pointer_id": new_csmg_pointer_id,
+        "new_stateinfo_pointer_id": new_stateinfo_pointer_id,
+        "new_clipgen_name": new_clipgen_name,
+        "new_csmg_name": new_csmg_name,
+        "new_stateinfo_name": new_stateinfo_name,
+        "new_event_name": new_event_name,
+        "new_toStateId": new_toStateId,
+        "new_userData": new_userData,
+        "new_animationInternalId": new_animationInternalId,
+        "new_anim_id": new_anim_id,
+    }
+
+    #   If there is a clipGen object...
+    if obj_data:
+        #   Duplicate clipGen
+        parser.duplicate_object(obj_data, new_clipgen_name, config)
+        #   If there is a CSMG object...
+        if traced_objects[0] is not None:
+            #   Find and duplicate CSMG
+            obj_data1 = parser.find_object_by_id(traced_objects[0])
+            parser.duplicate_object(obj_data1, new_csmg_name, config)
+            #   If there is a stateInfo object...
+            if traced_objects[1] is not None:
+                #   Find and duplicate CSMG
+                obj_data2 = parser.find_object_by_id(traced_objects[1])
+                parser.duplicate_object(obj_data2, new_stateinfo_name, config)
+        
+    parser.save_xml()
+    update_xml_header(xml_file)
+        
     
-    welcome_window.mainloop()
-
-def submit():
-    global gyzcount, folder_path, selected_file_path, event_names_path, new_c9997_path, new_c9997_file_path, selected_file_path_one
-    gyzcount = gyzcount + 1
-    gyzcount_name = str(gyzcount)
-    if not selected_file_path:
-        if not os.path.exists('c9997.xml'):
-            messagebox.showinfo("Error！", f"Error: The file c9997.xml cannot be found in the current directory")
-            return
-        else:
-            selected_file_path = os.path.join(os.path.dirname(sys.argv[0]), "c9997.xml")
-            selected_file_path_one = selected_file_path
-            folder_path = os.path.dirname(selected_file_path_one)
-            new_c9997_path = os.path.join(folder_path, "new_c9997.xml")
-            shutil.copy(selected_file_path, new_c9997_path)
-    #event_names_path = os.path.join(folder_path, "event_names.txt")
-    event_names_path = resource_path("event_names.txt")
-    new_c9997_path = os.path.join(folder_path, "new_c9997.xml")
-    tree = ET.parse(selected_file_path)
-    root = tree.getroot()
-    event_names(selected_file_path)
-    result = process_arguments()
-    hkx_register()
-    if result:
-        print("The action numbers generated this time are as follows:", result)
-        for entry in result:
-            add_event(entry)
-    else:
-        print("No valid action number found")
-    
-    selected_file_path = new_c9997_path
-    print("Current number of generated actions："+ gyzcount_name + ", You can click the Generate button to register the action based on the new file"+ '\n' + "If you reselect the file, re-register the action")
-
-global gyzcount
-gyzcount = 0
-
-root = tk.Tk()
-root.title("Sekiro NPC Action Registration Tool")
-
-root.geometry("600x400")
-
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-window_width = 800
-window_height = 600
-position_top = int((screen_height - window_height) / 2)
-position_left = int((screen_width - window_width) / 2)
-root.geometry(f'{window_width}x{window_height}+{position_left}+{position_top}')
-font = ('Times New Roman', 14)
-
-tk.Label(root, text="Please enter the action offset: for example, enter '3' to generate a300", font=font).pack(pady=(20, 5))
-entry1 = tk.Entry(root, font=font)
-entry1.insert(0, "3")
-entry1.pack(pady=5)
-
-tk.Label(root, text="Please enter the starting action number (3000~3109)", font=font).pack(pady=(20, 5))
-entry2 = tk.Entry(root, font=font)
-entry2.insert(0, "3000")
-entry2.pack(pady=5)
-
-tk.Label(root, text="Please enter the ending action number (3000~3109)", font=font).pack(pady=(20, 5))
-entry3 = tk.Entry(root, font=font)
-entry3.insert(0, "")
-entry3.pack(pady=5)
-
-entries = [entry1, entry2, entry3]
-
-button_frame = tk.Frame(root)
-button_frame.pack(pady=10)
-
-button1 = tk.Button(button_frame, text="Select File", command=select_file, font=('Times New Roman', 14))
-button1.pack(side='left', padx=20)
-
-button2 = tk.Button(button_frame, text="Generate", command=submit, font=('Times New Roman', 14))
-button2.pack(side='right', padx=20)
-
-root.withdraw() 
-show_welcome_window()
-
-root.mainloop()
