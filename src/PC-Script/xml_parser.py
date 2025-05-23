@@ -531,8 +531,8 @@ class XMLParser:
 
         return record
 
-    def save_xml(self, output_file=None):
-        output_file = output_file if output_file else self.xml_file
+    def save_xml(self, xml_file_path, output_file=None):
+        output_file = output_file if output_file else xml_file_path
         self.tree.write(
             output_file, 
             encoding="utf-8", 
@@ -540,24 +540,3 @@ class XMLParser:
             pretty_print=True
         )
         print(f"XML file saved as '{output_file}'")
-
-def update_xml_header(file_path):
-    """
-    Updates the XML declaration header to the specified format.
-
-    Args:
-        file_path (str): The path to the XML file to be modified.
-    """
-    with open(file_path, "r", encoding="utf-8") as file:
-        content = file.read()
-
-    # Replace the header
-    new_content = content.replace(
-        "<?xml version='1.0' encoding='UTF-8'?>",
-        '<?xml version="1.0" encoding="utf-8"?>'
-    )
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(new_content)
-
-    print(f"Updated header in '{file_path}'")

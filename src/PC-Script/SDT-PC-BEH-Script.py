@@ -2,6 +2,82 @@ import xml.etree.ElementTree as ET
 from xml_parser import XMLParser
 import tkinter as tk
 from tkinter import ttk
+from tkinter import filedialog
+from tkinter.simpledialog import askstring
+import json
+from tkinter import messagebox
+import os
+import zipfile
+import shutil
+import hashlib
+from datetime import datetime
+
+xml_file_path = None
+
+
+def file_hash(source):
+    """Compute SHA-256 hash from a file path or a file-like object"""
+    h = hashlib.sha256()
+
+    if isinstance(source, (str, os.PathLike)):
+        with open(source, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                h.update(chunk)
+    else:
+        for chunk in iter(lambda: source.read(8192), b''):
+            h.update(chunk)
+        source.seek(0)  # Reset stream position if needed later
+
+    return h.hexdigest()
+
+def backup_file(file_path, backup_dir="backups", max_backups=5):
+    if not os.path.exists(file_path):
+        print("File not found.")
+        return
+
+    os.makedirs(backup_dir, exist_ok=True)
+
+    current_hash = file_hash(file_path)
+    base_name = os.path.basename(file_path)
+    name, ext = os.path.splitext(base_name)
+
+    # Check for duplicate content
+    for fname in os.listdir(backup_dir):
+        if fname.endswith(".zip") and name in fname:
+            zip_path = os.path.join(backup_dir, fname)
+            with zipfile.ZipFile(zip_path, 'r') as z:
+                with z.open(base_name) as f:
+                    if file_hash(f) == current_hash:
+                        print("File unchanged since last backup. Skipping.")
+                        return
+
+    # Create .zip backup
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_path = os.path.join(backup_dir, f"{name}_{timestamp}.zip")
+
+    with zipfile.ZipFile(backup_path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+        z.write(file_path, arcname=base_name)
+
+    print(f"✅ ZIP backup saved to: {backup_path}")
+
+    # Trim old backups
+    backups = sorted(
+        [f for f in os.listdir(backup_dir) if f.startswith(name) and f.endswith(".zip")],
+        reverse=True
+    )
+    for old in backups[max_backups:]:
+        os.remove(os.path.join(backup_dir, old))
+        print(f"Removed old backup: {old}")
+
+def select_xml_file():
+    global xml_file_path
+    file_path = filedialog.askopenfilename(
+        title="Select XML File",
+        filetypes=[("XML files", "*.xml")]
+    )
+    if file_path:
+        xml_file_path = file_path
+        xml_label.config(text=f"Selected: {file_path}")
 
 def update_xml_header(file_path):
     """
@@ -24,7 +100,79 @@ def update_xml_header(file_path):
 
     print(f"Updated header in '{file_path}'")
 
+def create_project():
+    global xml_file_path
+    project_name = askstring("Project Name", "Enter a name for your project:")
+    if not project_name:
+        project_name = "SDT-BEH-Project"
+        #messagebox.showwarning("Canceled", "Project creation canceled — no name provided.")
+        return
+    xml_path = filedialog.askopenfilename(title="Select XML File", filetypes=[("XML files", "*.xml")])
+    if not xml_path:
+        return
+    hks_path = filedialog.askopenfilename(title="Select HKS File", filetypes=[("Lua/HKS files", "*.hks *.lua")])
+    if not hks_path:
+        return
+    event_txt = filedialog.askopenfilename(title="Select eventnameid.txt", filetypes=[("Text files", "*.txt")])
+    if not event_txt:
+        return
+    state_txt = filedialog.askopenfilename(title="Select statenameid.txt", filetypes=[("Text files", "*.txt")])
+    if not state_txt:
+        return
+
+    project_data = {
+        "project_name": project_name,
+        "files": {
+            "behavior_xml": xml_path,
+            "csmg_script": hks_path,
+            "event_id_map": event_txt,
+            "state_id_map": state_txt
+        }
+    }
+
+    save_path = filedialog.asksaveasfilename(
+        defaultextension=".json",
+        filetypes=[("JSON files", "*.json")],
+        title="Save Project File",
+        initialfile=f"{project_name}.json"
+    )
+
+    if save_path:
+        with open(save_path, 'w', encoding='utf-8') as f:
+            json.dump(project_data, f, indent=2)
+        messagebox.showinfo("Project Saved", f"Saved to {save_path}")
+        json_path = save_path
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            xml_file_path = data["files"]["behavior_xml"]
+            xml_label.config(text=f"Loaded from project: {xml_file_path}")
+            messagebox.showinfo("Project Loaded", f"Loaded: {data['project_name']}")
+    else:
+        messagebox.showwarning("Canceled", "Project not saved.")
+
+def open_project():
+    global xml_file_path
+    json_path = filedialog.askopenfilename(title="Open Project File", filetypes=[("JSON files", "*.json")])
+    if not json_path:
+        return
+
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            xml_file_path = data["files"]["behavior_xml"]
+            xml_label.config(text=f"Loaded from project: {xml_file_path}")
+            messagebox.showinfo("Project Loaded", f"Loaded: {data['project_name']}")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to load project:\n{e}")
+
+
 def run_parser():
+    global xml_file_path
+    if not xml_file_path:
+        result_label.config(text="No XML found. Please open a project.")
+        return
+    backup_file(xml_file_path)
+
     a_offset = entry_a_offset.get()
     new_anim_id = entry_anim_id.get()
     #entry_new_name = entry_new_name.get()
@@ -33,8 +181,8 @@ def run_parser():
     new_clipgen_name = f"a{a_offset}_{new_anim_id}"
     new_event_name = f"W_{new_stateinfo_name}"
     select_name = entry_select_name.get()
-    xml_file = 'c0000.xml'  # Update this with your XML file path
-    parser = XMLParser(xml_file)
+
+    parser = XMLParser(xml_file_path)
     
     #   Find selected object
     obj_data, traced_objects = parser.find_object_by_name(select_name)
@@ -108,8 +256,8 @@ def run_parser():
                 obj_data2 = parser.find_object_by_id(traced_objects[1])
                 parser.duplicate_object(obj_data2, new_stateinfo_name, config)
         
-    parser.save_xml()
-    update_xml_header(xml_file)
+    parser.save_xml(xml_file_path)
+    update_xml_header(xml_file_path)
         
 # ----- UI Setup -----
 root = tk.Tk()
@@ -135,6 +283,26 @@ entry_new_name = tk.Entry(root)
 entry_new_name.grid(row=3, column=1)
 entry_new_name.insert(0, "GroundAttackCombo6")
 
+project_buttons_frame = tk.Frame(root)
+project_buttons_frame.grid(row=7, columnspan=2)
+
+xml_label = tk.Label(root, text="No file selected")
+
+
+btn_create_project = tk.Button(project_buttons_frame, text="Create Project", command=lambda: create_project())
+btn_create_project.grid(row=0, column=0, padx=5)
+
+btn_open_project = tk.Button(project_buttons_frame, text="Open Project", command=lambda: open_project())
+btn_open_project.grid(row=0, column=1, padx=5)
+
+
+#xml_button = tk.Button(root, text="Browse XML File", command=select_xml_file)
+#xml_button.grid(row=6, columnspan=2, pady=(5, 0))
+
+#xml_label = tk.Label(root, text="No file selected")
+#xml_label.grid(row=5, columnspan=2)    
+
+
 # tk.Label(root, text="new_csmg_name").grid(row=3, column=0, sticky="e")
 # entry_csmg_name = tk.Entry(root)
 # entry_csmg_name.grid(row=2, column=1)
@@ -144,12 +312,12 @@ entry_new_name.insert(0, "GroundAttackCombo6")
 # entry_stateinfo_name.grid(row=3, column=1)
 
 # Arbitrary checkboxes for future logic
-checkbox_vars = []
-for i, label in enumerate(["Extra Transition", "Enable Debug", "Log Only"]):
-    var = tk.BooleanVar()
-    chk = tk.Checkbutton(root, text=label, variable=var)
-    chk.grid(row=5 + i, columnspan=2, sticky="w")
-    checkbox_vars.append(var)
+# checkbox_vars = []
+# for i, label in enumerate(["Extra Transition", "Enable Debug", "Log Only"]):
+#     var = tk.BooleanVar()
+#     chk = tk.Checkbutton(root, text=label, variable=var)
+#     chk.grid(row=5 + i, columnspan=2, sticky="w")
+#     checkbox_vars.append(var)
 
 run_button = tk.Button(root, text="Run", command=run_parser)
 run_button.grid(row=8, columnspan=2, pady=10)
