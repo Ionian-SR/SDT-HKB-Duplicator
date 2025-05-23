@@ -20,36 +20,49 @@ state_txt_path = None
 
 def reformat_g_paramHkbState(filepath):
     with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
+        lines = f.readlines()
 
-    # Match the entire g_paramHkbState assignment block
-    pattern = r'g_paramHkbState\s*=\s*\{(.*?)\}'
-    match = re.search(pattern, content, re.DOTALL)
+    start_idx = None
+    end_idx = None
+    brace_level = 0
+    inside_block = False
 
-    if not match:
-        print("g_paramHkbState block not found.")
+    for i, line in enumerate(lines):
+        if not inside_block and "g_paramHkbState" in line and "=" in line and "{" in line:
+            start_idx = i
+            brace_level += line.count("{") - line.count("}")
+            inside_block = True
+        elif inside_block:
+            brace_level += line.count("{") - line.count("}")
+            if brace_level == 0:
+                end_idx = i
+                break
+
+    if start_idx is None or end_idx is None:
+        print("❌ g_paramHkbState block not found or malformed.")
         return
 
-    raw_block = match.group(1)
+    # Extract and collapse the original block
+    block_lines = lines[start_idx:end_idx + 1]
+    raw_block = "".join(block_lines)
 
-    # Split by entries like [HKB_STATE_X] = { ... }
-    entry_pattern = r'(\[\s*HKB_STATE_[^\]]+\]\s*=\s*\{[^}]+\})'
+    # Extract individual entries like [HKB_STATE_SOMETHING] = { ... }
+    entry_pattern = r'(\[\s*HKB_STATE_[^\]]+\s*\]\s*=\s*\{[^}]*\})'
     entries = re.findall(entry_pattern, raw_block)
 
-    # Rebuild with proper formatting
-    formatted = "g_paramHkbState = {\n"
+    # Format entries line-by-line
+    formatted_block = "g_paramHkbState = {\n"
     for entry in entries:
-        formatted += f"    {entry},\n"
-    formatted = formatted.rstrip(",\n") + "\n}"
+        formatted_block += f"    {entry},\n"
+    formatted_block = formatted_block.rstrip(",\n") + "\n}\n"
 
-    # Replace the old block with the new one
-    new_content = re.sub(r'g_paramHkbState\s*=\s*\{(.*?)\}', formatted, content, flags=re.DOTALL)
+    # Replace original lines
+    lines[start_idx:end_idx + 1] = [formatted_block]
 
-    # Write the formatted result back to the file
     with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(new_content)
+        f.writelines(lines)
 
-    print("Reformatted g_paramHkbState block.")
+    print("✅ Reformatted g_paramHkbState block.")
 
 def file_hash(source):
     """Compute SHA-256 hash from a file path or a file-like object"""
@@ -256,6 +269,48 @@ def run_parser():
     if not xml_file_path:
         result_label.config(text="No XML found. Please open a project.")
         return
+    
+    #   Set up XMLParser with XML file path
+    parser = XMLParser(xml_file_path)
+
+    #   Create new names
+    a_offset = entry_a_offset.get()
+    new_anim_id = entry_anim_id.get()
+    new_cmsg_name = f"{entry_new_name.get()}_CMSG"
+    new_stateinfo_name = f"{entry_new_name.get()}"
+    new_clipgen_name = f"a{a_offset}_{new_anim_id}"
+    new_event_name = f"W_{new_stateinfo_name}"
+    select_name = entry_select_name.get()
+    #   Create variables
+    large_obj_id = parser.get_largest_obj()
+    new_clipgen_pointer_id = f"object{large_obj_id + 1}"
+    new_cmsg_pointer_id = f"object{large_obj_id + 2}"
+    new_stateinfo_pointer_id = f"object{large_obj_id + 3}"
+    new_toStateId = parser.get_largest_toStateId() + 1
+    new_userData = parser.get_largest_userData() + 1
+    eventInfo_entry = parser.generate_event_info_entry()
+
+    is_register_new_event = True
+
+    #   Check if desired object already exists
+    desired_obj_data, desired_traced_objects = parser.find_object_by_name(new_clipgen_name)
+    if desired_obj_data is not None:
+        print("\033[91mDesired object already exists. Cancelling operation.\033[0m")
+        return
+
+    #   Find selected object
+    selected_obj_data, selected_traced_objects = parser.find_object_by_name(select_name)
+    if selected_obj_data is None:
+        return
+    
+    #   Check if selected objects' CMSG already exists. If so, do not register new events.
+    selected_cmsg_obj_data = parser.find_object_by_id(selected_traced_objects[0])
+    #print(selected_cmsg_obj_data.get('fields', {}).get('name'))
+    if selected_cmsg_obj_data.get('fields', {}).get('name') == new_cmsg_name:
+        is_register_new_event = False
+        print("\033[93mExisting CMSG found. Appending to CMSG array.\033[0m")
+
+    #   Backup project files
     backup_project_files(
         files_dict={
             "behavior_xml": xml_file_path,
@@ -265,56 +320,43 @@ def run_parser():
         },
     )
 
-    a_offset = entry_a_offset.get()
-    new_anim_id = entry_anim_id.get()
-    new_cmsg_name = f"{entry_new_name.get()}_CMSG"
-    new_stateinfo_name = f"{entry_new_name.get()}"
-    new_clipgen_name = f"a{a_offset}_{new_anim_id}"
-    new_event_name = f"W_{new_stateinfo_name}"
-    select_name = entry_select_name.get()
+    #   If registering a new event...
+    #   - Append txt files
+    #   - Reformat and append cmsg file
+    #   - Append to eventNames and eventInfos array in xml
+    if is_register_new_event == True:
+        #   Append txt files
+        append_to_eventnameid(event_txt_path, new_event_name)
+        append_to_statenameid(state_txt_path, new_stateinfo_name)
+        
+        #   Reformat g_paramHkbState in cmsg
+        reformat_g_paramHkbState(hks_file_path)
 
-    parser = XMLParser(xml_file_path)
-    
-    #   Find selected object
-    obj_data, traced_objects = parser.find_object_by_name(select_name)
+        #   Append eventNames
+        parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
+        #new_eventNames_count = parser.find_array_count("object7", "eventNames")
 
-    #   Append txt files
-    append_to_eventnameid(event_txt_path, new_event_name)
-    append_to_statenameid(state_txt_path, new_stateinfo_name)
-    reformat_g_paramHkbState(hks_file_path)
+        #   Append eventInfos
+        parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
+        new_eventInfos_count = parser.find_array_count("object4", "eventInfos") - 1
+            
+        #   Append new stateInfo object to stateMachine object
+        parser.append_to_array(selected_traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
 
-    large_obj_id = parser.get_largest_obj()
-    new_clipgen_pointer_id = f"object{large_obj_id + 1}"
-    new_cmsg_pointer_id = f"object{large_obj_id + 2}"
-    new_stateinfo_pointer_id = f"object{large_obj_id + 3}"
+        #   Collect Statemachine information
+        statemachine_object = parser.find_object_by_id(selected_traced_objects[2])
 
-    new_toStateId = parser.get_largest_toStateId() + 1
-    new_userData = parser.get_largest_userData() + 1
-    eventInfo_entry = parser.generate_event_info_entry()
+        #   Find wildcard pointer ID
+        wildcard_object_id = parser.get_wildcard_transition(statemachine_object)
+        
+        #   Generate a new transition entry and append it
+        new_entry = parser.generate_transition_entry("object236", new_eventInfos_count, new_toStateId)
+        parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
 
     #   Append new animation to animationNames array. Update Count. Take new internalID.
     #   Object 7 contains animationNames eventInfos, and eventNames
     parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\a{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
     new_animationInternalId = parser.find_array_count("object7", "animationNames") - 1
-
-    #   Append eventNames
-    parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
-    new_eventNames_count = parser.find_array_count("object7", "eventNames")
-
-    #   Append eventInfos
-    parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
-    new_eventInfos_count = parser.find_array_count("object4", "eventInfos") - 1
-
-    #   Append new stateInfo object to stateMachine object
-    parser.append_to_array(traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
-
-    #   Collect Statemachine information
-    statemachine_object = parser.find_object_by_id(traced_objects[2])
-    #   Find wildcard pointer ID
-    wildcard_object_id = parser.get_wildcard_transition(statemachine_object)
-    #   Generate a new transition entry and append it
-    new_entry = parser.generate_transition_entry("object236", new_eventInfos_count, new_toStateId)
-    parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
 
     #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
     config = {
@@ -332,19 +374,19 @@ def run_parser():
     }
 
     #   If there is a clipGen object...
-    if obj_data:
+    if selected_obj_data:
         #   Duplicate clipGen
-        parser.duplicate_object(obj_data, new_clipgen_name, config)
+        parser.duplicate_object(selected_obj_data, new_clipgen_name, config)
         #   If there is a cmsg object...
-        if traced_objects[0] is not None:
+        if selected_traced_objects[0] is not None and is_register_new_event == True:
             #   Find and duplicate cmsg
-            obj_data1 = parser.find_object_by_id(traced_objects[0])
-            parser.duplicate_object(obj_data1, new_cmsg_name, config)
+            cmsg_obj_data = parser.find_object_by_id(selected_traced_objects[0])
+            parser.duplicate_object(cmsg_obj_data, new_cmsg_name, config)
             #   If there is a stateInfo object...
-            if traced_objects[1] is not None:
+            if selected_traced_objects[1] is not None:
                 #   Find and duplicate cmsg
-                obj_data2 = parser.find_object_by_id(traced_objects[1])
-                parser.duplicate_object(obj_data2, new_stateinfo_name, config)
+                stateinfo_obj_data = parser.find_object_by_id(selected_traced_objects[1])
+                parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
         
     parser.save_xml(xml_file_path)
     update_xml_header(xml_file_path)
