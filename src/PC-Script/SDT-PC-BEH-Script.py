@@ -13,7 +13,9 @@ import hashlib
 from datetime import datetime
 
 xml_file_path = None
-
+hks_file_path = None
+event_txt_path = None
+state_txt_path = None
 
 def file_hash(source):
     """Compute SHA-256 hash from a file path or a file-like object"""
@@ -30,44 +32,23 @@ def file_hash(source):
 
     return h.hexdigest()
 
-def backup_file(file_path, backup_dir="backups", max_backups=5):
-    if not os.path.exists(file_path):
-        print("File not found.")
-        return
-
+def backup_project_files(files_dict, project_name="project", backup_dir="backups"):
     os.makedirs(backup_dir, exist_ok=True)
 
-    current_hash = file_hash(file_path)
-    base_name = os.path.basename(file_path)
-    name, ext = os.path.splitext(base_name)
-
-    # Check for duplicate content
-    for fname in os.listdir(backup_dir):
-        if fname.endswith(".zip") and name in fname:
-            zip_path = os.path.join(backup_dir, fname)
-            with zipfile.ZipFile(zip_path, 'r') as z:
-                with z.open(base_name) as f:
-                    if file_hash(f) == current_hash:
-                        print("File unchanged since last backup. Skipping.")
-                        return
-
-    # Create .zip backup
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    backup_path = os.path.join(backup_dir, f"{name}_{timestamp}.zip")
+    zip_name = f"{project_name}_backup_{timestamp}.zip"
+    zip_path = os.path.join(backup_dir, zip_name)
 
-    with zipfile.ZipFile(backup_path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
-        z.write(file_path, arcname=base_name)
+    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+        for label, path in files_dict.items():
+            if os.path.exists(path):
+                arcname = os.path.basename(path)
+                z.write(path, arcname=arcname)
+                print(f"Added {arcname} to {zip_name}")
+            else:
+                print(f"Skipped missing file: {path}")
 
-    print(f"✅ ZIP backup saved to: {backup_path}")
-
-    # Trim old backups
-    backups = sorted(
-        [f for f in os.listdir(backup_dir) if f.startswith(name) and f.endswith(".zip")],
-        reverse=True
-    )
-    for old in backups[max_backups:]:
-        os.remove(os.path.join(backup_dir, old))
-        print(f"Removed old backup: {old}")
+    print(f"Backup complete: {zip_path}")
 
 def select_xml_file():
     global xml_file_path
@@ -78,6 +59,70 @@ def select_xml_file():
     if file_path:
         xml_file_path = file_path
         xml_label.config(text=f"Selected: {file_path}")
+
+def append_to_eventnameid(event_file, new_event_name):
+    # Step 1: Detect encoding
+    try:
+        with open(event_file, 'r', encoding='utf-8-sig') as f:
+            lines = f.readlines()
+        encoding_used = 'utf-8-sig'
+    except UnicodeDecodeError:
+        with open(event_file, 'r', encoding='cp932') as f:
+            lines = f.readlines()
+        encoding_used = 'cp932'
+
+    # Step 2: Get last ID
+    last_id = -1
+    for line in lines:
+        if '=' in line:
+            try:
+                last_id = int(line.split('=')[0].strip())
+            except ValueError:
+                continue
+
+    if last_id == -1:
+        print("No valid entries found.")
+        return
+
+    new_id = last_id + 1
+
+    # Step 3: Append
+    with open(event_file, 'a', encoding=encoding_used) as f:
+        f.write(f'{new_id} = "{new_event_name}"\n')
+
+    print(f"Appended: {new_id} = \"{new_event_name}\"")
+
+def append_to_statenameid(state_file, new_state_name):
+    # Step 1: Detect encoding
+    try:
+        with open(state_file, 'r', encoding='utf-8-sig') as f:
+            lines = f.readlines()
+        encoding_used = 'utf-8-sig'
+    except UnicodeDecodeError:
+        with open(state_file, 'r', encoding='cp932') as f:
+            lines = f.readlines()
+        encoding_used = 'cp932'
+
+    # Step 2: Get the last ID
+    last_id = -1
+    for line in lines:
+        if '=' in line:
+            try:
+                last_id = int(line.split('=')[0].strip())
+            except ValueError:
+                continue
+
+    if last_id == -1:
+        print("No valid entries found in state file.")
+        return
+
+    new_id = last_id + 1
+
+    # Step 3: Append the new line
+    with open(state_file, 'a', encoding=encoding_used) as f:
+        f.write(f'\n{new_id} = "{new_state_name}"')
+
+    print(f"Appended to state: {new_id} = \"{new_state_name}\"")
 
 def update_xml_header(file_path):
     """
@@ -151,7 +196,7 @@ def create_project():
         messagebox.showwarning("Canceled", "Project not saved.")
 
 def open_project():
-    global xml_file_path
+    global xml_file_path, hks_file_path, event_txt_path, state_txt_path
     json_path = filedialog.askopenfilename(title="Open Project File", filetypes=[("JSON files", "*.json")])
     if not json_path:
         return
@@ -159,19 +204,34 @@ def open_project():
     try:
         with open(json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            xml_file_path = data["files"]["behavior_xml"]
-            xml_label.config(text=f"Loaded from project: {xml_file_path}")
-            messagebox.showinfo("Project Loaded", f"Loaded: {data['project_name']}")
+
+        # Extract all file paths
+        xml_file_path = data["files"]["behavior_xml"]
+        hks_file_path = data["files"]["csmg_script"]
+        event_txt_path = data["files"]["event_id_map"]
+        state_txt_path = data["files"]["state_id_map"]
+
+        # Update UI label to reflect loaded XML
+        xml_label.config(text=f"Loaded from project: {xml_file_path}")
+        messagebox.showinfo("Project Loaded", f"Loaded: {data['project_name']}")
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load project:\n{e}")
-
 
 def run_parser():
     global xml_file_path
     if not xml_file_path:
         result_label.config(text="No XML found. Please open a project.")
         return
-    backup_file(xml_file_path)
+    backup_project_files(
+        files_dict={
+            "behavior_xml": xml_file_path,
+            "csmg_script": hks_file_path,
+            "event_id_map": event_txt_path,
+            "state_id_map": state_txt_path
+        },
+    )
+
+    #backup_project_files(xml_file_path)
 
     a_offset = entry_a_offset.get()
     new_anim_id = entry_anim_id.get()
@@ -193,6 +253,9 @@ def run_parser():
     #new_clipgen_name = f"a{a_offset}_{new_anim_id}"
     #new_stateinfo_name = f"GroundAttackCombo6"
     #new_event_name = f"W_{new_stateinfo_name}"
+
+    append_to_eventnameid(event_txt_path, new_event_name)
+    append_to_statenameid(state_txt_path, new_stateinfo_name)
 
     new_clipgen_pointer_id = f"object{parser.get_largest_obj() + 1}"
     new_csmg_pointer_id = f"object{parser.get_largest_obj() + 2}"
