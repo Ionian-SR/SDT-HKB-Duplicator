@@ -11,11 +11,45 @@ import zipfile
 import shutil
 import hashlib
 from datetime import datetime
+import re
 
 xml_file_path = None
 hks_file_path = None
 event_txt_path = None
 state_txt_path = None
+
+def reformat_g_paramHkbState(filepath):
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Match the entire g_paramHkbState assignment block
+    pattern = r'g_paramHkbState\s*=\s*\{(.*?)\}'
+    match = re.search(pattern, content, re.DOTALL)
+
+    if not match:
+        print("g_paramHkbState block not found.")
+        return
+
+    raw_block = match.group(1)
+
+    # Split by entries like [HKB_STATE_X] = { ... }
+    entry_pattern = r'(\[\s*HKB_STATE_[^\]]+\]\s*=\s*\{[^}]+\})'
+    entries = re.findall(entry_pattern, raw_block)
+
+    # Rebuild with proper formatting
+    formatted = "g_paramHkbState = {\n"
+    for entry in entries:
+        formatted += f"    {entry},\n"
+    formatted = formatted.rstrip(",\n") + "\n}"
+
+    # Replace the old block with the new one
+    new_content = re.sub(r'g_paramHkbState\s*=\s*\{(.*?)\}', formatted, content, flags=re.DOTALL)
+
+    # Write the formatted result back to the file
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+
+    print("Reformatted g_paramHkbState block.")
 
 def file_hash(source):
     """Compute SHA-256 hash from a file path or a file-like object"""
@@ -169,7 +203,7 @@ def create_project():
         "project_name": project_name,
         "files": {
             "behavior_xml": xml_path,
-            "csmg_script": hks_path,
+            "cmsg_script": hks_path,
             "event_id_map": event_txt,
             "state_id_map": state_txt
         }
@@ -207,7 +241,7 @@ def open_project():
 
         # Extract all file paths
         xml_file_path = data["files"]["behavior_xml"]
-        hks_file_path = data["files"]["csmg_script"]
+        hks_file_path = data["files"]["cmsg_script"]
         event_txt_path = data["files"]["event_id_map"]
         state_txt_path = data["files"]["state_id_map"]
 
@@ -225,18 +259,15 @@ def run_parser():
     backup_project_files(
         files_dict={
             "behavior_xml": xml_file_path,
-            "csmg_script": hks_file_path,
+            "cmsg_script": hks_file_path,
             "event_id_map": event_txt_path,
             "state_id_map": state_txt_path
         },
     )
 
-    #backup_project_files(xml_file_path)
-
     a_offset = entry_a_offset.get()
     new_anim_id = entry_anim_id.get()
-    #entry_new_name = entry_new_name.get()
-    new_csmg_name = f"{entry_new_name.get()}_CSMG"
+    new_cmsg_name = f"{entry_new_name.get()}_CMSG"
     new_stateinfo_name = f"{entry_new_name.get()}"
     new_clipgen_name = f"a{a_offset}_{new_anim_id}"
     new_event_name = f"W_{new_stateinfo_name}"
@@ -247,19 +278,15 @@ def run_parser():
     #   Find selected object
     obj_data, traced_objects = parser.find_object_by_name(select_name)
 
-    #a_offset = f"050"
-    #new_anim_id = f"300050"
-    #new_csmg_name = f"GroundAttackCombo6_CMSG"
-    #new_clipgen_name = f"a{a_offset}_{new_anim_id}"
-    #new_stateinfo_name = f"GroundAttackCombo6"
-    #new_event_name = f"W_{new_stateinfo_name}"
-
+    #   Append txt files
     append_to_eventnameid(event_txt_path, new_event_name)
     append_to_statenameid(state_txt_path, new_stateinfo_name)
+    reformat_g_paramHkbState(hks_file_path)
 
-    new_clipgen_pointer_id = f"object{parser.get_largest_obj() + 1}"
-    new_csmg_pointer_id = f"object{parser.get_largest_obj() + 2}"
-    new_stateinfo_pointer_id = f"object{parser.get_largest_obj() + 3}"
+    large_obj_id = parser.get_largest_obj()
+    new_clipgen_pointer_id = f"object{large_obj_id + 1}"
+    new_cmsg_pointer_id = f"object{large_obj_id + 2}"
+    new_stateinfo_pointer_id = f"object{large_obj_id + 3}"
 
     new_toStateId = parser.get_largest_toStateId() + 1
     new_userData = parser.get_largest_userData() + 1
@@ -292,10 +319,10 @@ def run_parser():
     #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
     config = {
         "new_clipgen_pointer_id": new_clipgen_pointer_id,
-        "new_csmg_pointer_id": new_csmg_pointer_id,
+        "new_cmsg_pointer_id": new_cmsg_pointer_id,
         "new_stateinfo_pointer_id": new_stateinfo_pointer_id,
         "new_clipgen_name": new_clipgen_name,
-        "new_csmg_name": new_csmg_name,
+        "new_cmsg_name": new_cmsg_name,
         "new_stateinfo_name": new_stateinfo_name,
         "new_event_name": new_event_name,
         "new_toStateId": new_toStateId,
@@ -308,14 +335,14 @@ def run_parser():
     if obj_data:
         #   Duplicate clipGen
         parser.duplicate_object(obj_data, new_clipgen_name, config)
-        #   If there is a CSMG object...
+        #   If there is a cmsg object...
         if traced_objects[0] is not None:
-            #   Find and duplicate CSMG
+            #   Find and duplicate cmsg
             obj_data1 = parser.find_object_by_id(traced_objects[0])
-            parser.duplicate_object(obj_data1, new_csmg_name, config)
+            parser.duplicate_object(obj_data1, new_cmsg_name, config)
             #   If there is a stateInfo object...
             if traced_objects[1] is not None:
-                #   Find and duplicate CSMG
+                #   Find and duplicate cmsg
                 obj_data2 = parser.find_object_by_id(traced_objects[1])
                 parser.duplicate_object(obj_data2, new_stateinfo_name, config)
         
@@ -366,9 +393,9 @@ btn_open_project.grid(row=0, column=1, padx=5)
 #xml_label.grid(row=5, columnspan=2)    
 
 
-# tk.Label(root, text="new_csmg_name").grid(row=3, column=0, sticky="e")
-# entry_csmg_name = tk.Entry(root)
-# entry_csmg_name.grid(row=2, column=1)
+# tk.Label(root, text="new_cmsg_name").grid(row=3, column=0, sticky="e")
+# entry_cmsg_name = tk.Entry(root)
+# entry_cmsg_name.grid(row=2, column=1)
 
 # tk.Label(root, text="new_stateinfo_name").grid(row=4, column=0, sticky="e")
 # entry_stateinfo_name = tk.Entry(root)

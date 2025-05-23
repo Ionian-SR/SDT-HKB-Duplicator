@@ -16,13 +16,13 @@ echo -e "${RED}Removing project files${RESET}"
 rm project/c0000.xml
 rm project/eventnameid.txt
 rm project/statenameid.txt
-rm project/c0000_csmg.hks
+rm project/c0000_cmsg.hks
 
 echo -e "${YELLOW}Duplicating templates to project directory${RESET}"
 cp template/c0000.xml project/c0000.xml
 cp template/eventnameid.txt project/eventnameid.txt
 cp template/statenameid.txt project/statenameid.txt
-cp template/c0000_csmg.hks project/c0000_csmg.hks
+cp template/c0000_cmsg.hks project/c0000_cmsg.hks
 
 echo -e "${GREEN}Running python script${RESET}"
 python3 SDT-PC-BEH-Script.py

@@ -272,11 +272,11 @@ class XMLParser:
         including handling of pointer fields and arrays.
         """
         new_clipgen_pointer_id = config.get("new_clipgen_pointer_id")
-        new_csmg_pointer_id = config.get("new_csmg_pointer_id")
+        new_cmsg_pointer_id = config.get("new_cmsg_pointer_id")
         new_stateinfo_pointer_id = config.get("new_stateinfo_pointer_id")
 
         new_clipgen_name = config.get("new_clipgen_name")
-        new_csmg_name = config.get("new_csmg_name")
+        new_cmsg_name = config.get("new_cmsg_name")
         new_stateinfo_name = config.get("new_stateinfo_name")
         new_event_name = config.get("new_event_name")
 
@@ -332,7 +332,7 @@ class XMLParser:
 
                 # Handle specific pointer replacements
                 if field_name == "generator":
-                    pointer_id = new_csmg_pointer_id
+                    pointer_id = new_cmsg_pointer_id
 
                 etree.SubElement(field, "pointer", id=pointer_id)
                 field.tail = "\n    "
