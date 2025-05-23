@@ -12,11 +12,17 @@ fi
 
 export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0
 
-echo -e "${RED}Removing current c0000.xml${RESET}"
-rm c0000.xml
+echo -e "${RED}Removing project files${RESET}"
+rm project/c0000.xml
+rm project/eventnameid.txt
+rm project/statenameid.txt
+rm project/c0000_csmg.hks
 
-echo -e "${YELLOW}Duplicating c0000_backup.xml to c0000.xml${RESET}"
-cp c0000_backup.xml c0000.xml
+echo -e "${YELLOW}Duplicating templates to project directory${RESET}"
+cp template/c0000.xml project/c0000.xml
+cp template/eventnameid.txt project/eventnameid.txt
+cp template/statenameid.txt project/statenameid.txt
+cp template/c0000_csmg.hks project/c0000_csmg.hks
 
 echo -e "${GREEN}Running python script${RESET}"
 python3 SDT-PC-BEH-Script.py
