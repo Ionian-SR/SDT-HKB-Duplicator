@@ -293,20 +293,21 @@ def run_parser():
     is_register_new_event = True
 
     #   Check if desired object already exists
+    #   If NOT, stop
     desired_obj_data, desired_traced_objects = parser.find_object_by_name(new_clipgen_name)
     if desired_obj_data is not None:
         print("\033[91mDesired object already exists. Cancelling operation.\033[0m")
         return
 
     #   Find selected object
+    #   If object doesn't exist, stop.
     selected_obj_data, selected_traced_objects = parser.find_object_by_name(select_name)
     if selected_obj_data is None:
         return
     
     #   Check if selected objects' CMSG already exists. If so, do not register new events.
-    selected_cmsg_obj_data = parser.find_object_by_id(selected_traced_objects[0])
-    #print(selected_cmsg_obj_data.get('fields', {}).get('name'))
-    if selected_cmsg_obj_data.get('fields', {}).get('name') == new_cmsg_name:
+    selected_cmsg_obj_data, selected_cmsg_traced_objects = parser.find_object_by_name(new_cmsg_name)
+    if selected_cmsg_obj_data is not None and selected_cmsg_obj_data.get('fields', {}).get('name') == new_cmsg_name:
         is_register_new_event = False
         print("\033[93mExisting CMSG found. Appending to CMSG array.\033[0m")
 
@@ -377,17 +378,22 @@ def run_parser():
     if selected_obj_data:
         #   Duplicate clipGen
         parser.duplicate_object(selected_obj_data, new_clipgen_name, config)
-        #   If there is a cmsg object...
-        if selected_traced_objects[0] is not None and is_register_new_event == True:
-            #   Find and duplicate cmsg
-            cmsg_obj_data = parser.find_object_by_id(selected_traced_objects[0])
-            parser.duplicate_object(cmsg_obj_data, new_cmsg_name, config)
-            #   If there is a stateInfo object...
-            if selected_traced_objects[1] is not None:
+        #   If CMSG already exists, append to it.
+        if is_register_new_event == False:
+            print(selected_cmsg_obj_data.get('id'))
+            parser.append_to_array(selected_cmsg_obj_data.get('id'), "generators", new_clipgen_pointer_id, is_pointer=True)
+        else:
+            #   If there is a cmsg object...
+            if selected_traced_objects[0] is not None:
                 #   Find and duplicate cmsg
-                stateinfo_obj_data = parser.find_object_by_id(selected_traced_objects[1])
-                parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
-        
+                cmsg_obj_data = parser.find_object_by_id(selected_traced_objects[0])
+                parser.duplicate_object(cmsg_obj_data, new_cmsg_name, config)
+                #   If there is a stateInfo object...
+                if selected_traced_objects[1] is not None:
+                    #   Find and duplicate cmsg
+                    stateinfo_obj_data = parser.find_object_by_id(selected_traced_objects[1])
+                    parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
+            
     parser.save_xml(xml_file_path)
     update_xml_header(xml_file_path)
         

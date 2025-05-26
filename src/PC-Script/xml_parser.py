@@ -198,7 +198,7 @@ class XMLParser:
                     print(f"Traced objects: {traced_objects}")
                     return obj_data, traced_objects
 
-        print(f"\033[91mObject with name '{name_value}' not found.\033[0m")
+        print(f"Object with name '{name_value}' not found.")
         return None, []
 
     def find_object_by_id(self, obj_id):
@@ -226,7 +226,7 @@ class XMLParser:
             # return obj_data, traced_objects
             return obj_data
 
-        print(f"\033[91mObject with ID '{obj_id}' not found.\033[0m")
+        print(f"Object with ID '{obj_id}' not found.")
         return None, []
 
     def _trace(self, obj_id, visited, referenced_objects, trace_limit=4):
