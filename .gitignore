@@ -6,4 +6,4 @@ venv
 /src/build
 /src/dist
 __pycache__/
-/backups
+src\PC-Script\backups
