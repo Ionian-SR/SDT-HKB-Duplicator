@@ -39,7 +39,7 @@ def reformat_g_paramHkbState(filepath):
                 break
 
     if start_idx is None or end_idx is None:
-        print("❌ g_paramHkbState block not found or malformed.")
+        print("g_paramHkbState block not found or malformed.")
         return
 
     # Extract and collapse the original block
@@ -62,7 +62,7 @@ def reformat_g_paramHkbState(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.writelines(lines)
 
-    print("✅ Reformatted g_paramHkbState block.")
+    print("Reformatted g_paramHkbState block.")
 
 def file_hash(source):
     """Compute SHA-256 hash from a file path or a file-like object"""
@@ -88,6 +88,9 @@ def backup_project_files(files_dict, project_name="project", backup_dir="backups
 
     with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
         for label, path in files_dict.items():
+            if not path:
+                print(f"[WARNING] Skipping '{label}' - path is None or empty.")
+                continue
             if os.path.exists(path):
                 arcname = os.path.basename(path)
                 z.write(path, arcname=arcname)
@@ -274,8 +277,8 @@ def run_parser():
     parser = XMLParser(xml_file_path)
 
     #   Create new names
-    a_offset = entry_a_offset.get()
-    new_anim_id = entry_anim_id.get()
+    a_offset = entry_a_offset
+    new_anim_id = entry_anim_id
     new_cmsg_name = f"{entry_new_name.get()}_CMSG"
     new_stateinfo_name = f"{entry_new_name.get()}"
     new_clipgen_name = f"a{a_offset}_{new_anim_id}"
@@ -399,22 +402,43 @@ def run_parser():
         
 # ----- UI Setup -----
 root = tk.Tk()
-root.title("XML Animation Modifier")
+root.title("SDT HKB Script")
 
 tk.Label(root, text="Type in animation ID to duplicate (Example: a050_300040)").grid(row=0, column=0, sticky="e")
 entry_select_name = tk.Entry(root)
 entry_select_name.grid(row=0, column=1)
 entry_select_name.insert(0, "a050_300040")
 
-tk.Label(root, text="Animation offset (Example: '050', '101')").grid(row=1, column=0, sticky="e")
-entry_a_offset = tk.Entry(root)
-entry_a_offset.grid(row=1, column=1)
-entry_a_offset.insert(0, "050")
+tk.Label(root, text="New animation ID (Example: a050_300050)").grid(row=1, column=0, sticky="e")
+entry_new_id = tk.Entry(root)
+entry_new_id.grid(row=1, column=1)
+entry_new_id.insert(0, "a050_300050")
 
-tk.Label(root, text="New Animation ID (Example: 300050)").grid(row=2, column=0, sticky="e")
-entry_anim_id = tk.Entry(root)
-entry_anim_id.grid(row=2, column=1)
-entry_anim_id.insert(0, "300050")
+text = entry_new_id.get()
+
+if '_' not in text:
+    print("Error: Underscore separator not found.")
+else:
+    parts = text.split('_')
+
+    if len(parts) != 2:
+        print("Error: String does not contain exactly two parts.")
+    elif not parts[0].startswith('a'):
+        print("Error: First part does not start with 'a'.")
+    else:
+        part1, part2 = parts
+        entry_a_offset = part1
+        entry_anim_id = part2
+        
+# tk.Label(root, text="Animation offset (Example: '050', '101')").grid(row=1, column=0, sticky="e")
+# entry_a_offset = tk.Entry(root)
+# entry_a_offset.grid(row=1, column=1)
+# entry_a_offset.insert(0, "050")
+
+# tk.Label(root, text="New Animation ID (Example: 300050)").grid(row=2, column=0, sticky="e")
+# entry_anim_id = tk.Entry(root)
+# entry_anim_id.grid(row=2, column=1)
+# entry_anim_id.insert(0, "300050")
 
 tk.Label(root, text="New Animation Name (Example: GroundAttackCombo6)").grid(row=3, column=0, sticky="e")
 entry_new_name = tk.Entry(root)
