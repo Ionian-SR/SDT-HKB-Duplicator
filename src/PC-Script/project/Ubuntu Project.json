@@ -1,0 +1,9 @@
+{
+  "project_name": "Ubuntu Project",
+  "files": {
+    "behavior_xml": "/home/chan0155/SDT-NPC-Behbnd-Script/src/PC-Script/project/c0000.xml",
+    "cmsg_script": "/home/chan0155/SDT-NPC-Behbnd-Script/src/PC-Script/project/c0000_cmsg.hks",
+    "event_id_map": "/home/chan0155/SDT-NPC-Behbnd-Script/src/PC-Script/project/eventnameid.txt",
+    "state_id_map": "/home/chan0155/SDT-NPC-Behbnd-Script/src/PC-Script/project/statenameid.txt"
+  }
+}
