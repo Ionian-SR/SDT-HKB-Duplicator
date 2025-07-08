@@ -1,14 +1,14 @@
 import xml.etree.ElementTree as ET
 from xml_parser import XMLParser
+from hks_parser import HKSParser
 import tkinter as tk
-from tkinter import ttk
+#from tkinter import ttk
 from tkinter import filedialog
 from tkinter.simpledialog import askstring
 import json
 from tkinter import messagebox
 import os
 import zipfile
-import shutil
 import hashlib
 from datetime import datetime
 import re
@@ -17,52 +17,6 @@ xml_file_path = None
 hks_file_path = None
 event_txt_path = None
 state_txt_path = None
-
-def reformat_g_paramHkbState(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-
-    start_idx = None
-    end_idx = None
-    brace_level = 0
-    inside_block = False
-
-    for i, line in enumerate(lines):
-        if not inside_block and "g_paramHkbState" in line and "=" in line and "{" in line:
-            start_idx = i
-            brace_level += line.count("{") - line.count("}")
-            inside_block = True
-        elif inside_block:
-            brace_level += line.count("{") - line.count("}")
-            if brace_level == 0:
-                end_idx = i
-                break
-
-    if start_idx is None or end_idx is None:
-        print("g_paramHkbState block not found or malformed.")
-        return
-
-    # Extract and collapse the original block
-    block_lines = lines[start_idx:end_idx + 1]
-    raw_block = "".join(block_lines)
-
-    # Extract individual entries like [HKB_STATE_SOMETHING] = { ... }
-    entry_pattern = r'(\[\s*HKB_STATE_[^\]]+\s*\]\s*=\s*\{[^}]*\})'
-    entries = re.findall(entry_pattern, raw_block)
-
-    # Format entries line-by-line
-    formatted_block = "g_paramHkbState = {\n"
-    for entry in entries:
-        formatted_block += f"    {entry},\n"
-    formatted_block = formatted_block.rstrip(",\n") + "\n}\n"
-
-    # Replace original lines
-    lines[start_idx:end_idx + 1] = [formatted_block]
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.writelines(lines)
-
-    print("Reformatted g_paramHkbState block.")
 
 def file_hash(source):
     """Compute SHA-256 hash from a file path or a file-like object"""
@@ -94,7 +48,7 @@ def backup_project_files(files_dict, project_name="project", backup_dir="backups
             if os.path.exists(path):
                 arcname = os.path.basename(path)
                 z.write(path, arcname=arcname)
-                print(f"Added {arcname} to {zip_name}")
+                #print(f"Added {arcname} to {zip_name}")
             else:
                 print(f"Skipped missing file: {path}")
 
@@ -267,14 +221,43 @@ def open_project():
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load project:\n{e}")
 
+def to_hkb_state(text):
+    if not isinstance(text, str):
+        print("⚠️ to_hkb_state received non-string input:", type(text), text)
+        return "INVALID_INPUT"
+    s1 = re.sub(r'(?<!^)(?=[A-Z])', '_', text)
+    s2 = re.sub(r'(\D)(\d)', r'\1_\2', s1)
+    return s2.upper()
+
 def run_parser():
     global xml_file_path
+    global hks_file_path
     if not xml_file_path:
         result_label.config(text="No XML found. Please open a project.")
         return
     
     #   Set up XMLParser with XML file path
-    parser = XMLParser(xml_file_path)
+    xml_parser = XMLParser(xml_file_path)
+    
+    #   Set up CMSGParser
+    hks_parser = HKSParser(hks_file_path)
+
+    #   Seperate text from input
+    text = entry_new_id.get()
+
+    if '_' not in text:
+        print("Error: Underscore separator not found.")
+    else:
+        parts = text.split('_')
+
+        if len(parts) != 2:
+            print("Error: String does not contain exactly two parts.")
+        elif not parts[0].startswith('a'):
+            print("Error: First part does not start with 'a'.")
+        else:
+            part1, part2 = parts
+            entry_a_offset = part1
+            entry_anim_id = part2
 
     #   Create new names
     a_offset = entry_a_offset
@@ -285,32 +268,32 @@ def run_parser():
     new_event_name = f"W_{new_stateinfo_name}"
     select_name = entry_select_name.get()
     #   Create variables
-    large_obj_id = parser.get_largest_obj()
+    large_obj_id = xml_parser.get_largest_obj()
     new_clipgen_pointer_id = f"object{large_obj_id + 1}"
     new_cmsg_pointer_id = f"object{large_obj_id + 2}"
     new_stateinfo_pointer_id = f"object{large_obj_id + 3}"
-    new_toStateId = parser.get_largest_toStateId() + 1
-    new_userData = parser.get_largest_userData() + 1
-    eventInfo_entry = parser.generate_event_info_entry()
+    new_toStateId = xml_parser.get_largest_toStateId() + 1
+    new_userData = xml_parser.get_largest_userData() + 1
+    eventInfo_entry = xml_parser.generate_event_info_entry()
 
     is_register_new_event = True
 
     #   Check if desired object already exists
     #   If NOT, stop
-    desired_obj_data, desired_traced_objects = parser.find_object_by_name(new_clipgen_name)
+    desired_obj_data, desired_traced_objects = xml_parser.find_object_by_name(new_clipgen_name)
     if desired_obj_data is not None:
         print("\033[91mDesired object already exists. Cancelling operation.\033[0m")
         return
 
     #   Find selected object
     #   If object doesn't exist, stop.
-    selected_obj_data, selected_traced_objects = parser.find_object_by_name(select_name)
+    selected_obj_data, selected_traced_objects = xml_parser.find_object_by_name(select_name)
     if selected_obj_data is None:
         return
     
     #   Check if selected objects' CMSG already exists. If so, do not register new events.
-    selected_cmsg_obj_data, selected_cmsg_traced_objects = parser.find_object_by_name(new_cmsg_name)
-    if selected_cmsg_obj_data is not None and selected_cmsg_obj_data.get('fields', {}).get('name') == new_cmsg_name:
+    selected_new_cmsg_obj_data, selected_new_cmsg_traced_objects = xml_parser.find_object_by_name(new_cmsg_name)
+    if selected_new_cmsg_obj_data is not None and selected_new_cmsg_obj_data.get('fields', {}).get('name') == new_cmsg_name:
         is_register_new_event = False
         print("\033[93mExisting CMSG found. Appending to CMSG array.\033[0m")
 
@@ -334,33 +317,33 @@ def run_parser():
         append_to_statenameid(state_txt_path, new_stateinfo_name)
         
         #   Reformat g_paramHkbState in cmsg
-        reformat_g_paramHkbState(hks_file_path)
+        hks_parser.reformat_g_paramHkbState()
 
         #   Append eventNames
-        parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
-        #new_eventNames_count = parser.find_array_count("object7", "eventNames")
+        xml_parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
+        #new_eventNames_count = xml_parser.find_array_count("object7", "eventNames")
 
         #   Append eventInfos
-        parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
-        new_eventInfos_count = parser.find_array_count("object4", "eventInfos") - 1
+        xml_parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
+        new_eventInfos_count = xml_parser.find_array_count("object4", "eventInfos") - 1
             
         #   Append new stateInfo object to stateMachine object
-        parser.append_to_array(selected_traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
+        xml_parser.append_to_array(selected_traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
 
         #   Collect Statemachine information
-        statemachine_object = parser.find_object_by_id(selected_traced_objects[2])
+        statemachine_object = xml_parser.find_object_by_id(selected_traced_objects[2])
 
         #   Find wildcard pointer ID
-        wildcard_object_id = parser.get_wildcard_transition(statemachine_object)
+        wildcard_object_id = xml_parser.get_wildcard_transition(statemachine_object)
         
         #   Generate a new transition entry and append it
-        new_entry = parser.generate_transition_entry("object236", new_eventInfos_count, new_toStateId)
-        parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
+        new_entry = xml_parser.generate_transition_entry("object236", new_eventInfos_count, new_toStateId)
+        xml_parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
 
     #   Append new animation to animationNames array. Update Count. Take new internalID.
     #   Object 7 contains animationNames eventInfos, and eventNames
-    parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\a{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
-    new_animationInternalId = parser.find_array_count("object7", "animationNames") - 1
+    xml_parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\a{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
+    new_animationInternalId = xml_parser.find_array_count("object7", "animationNames") - 1
 
     #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
     config = {
@@ -380,24 +363,28 @@ def run_parser():
     #   If there is a clipGen object...
     if selected_obj_data:
         #   Duplicate clipGen
-        parser.duplicate_object(selected_obj_data, new_clipgen_name, config)
+        xml_parser.duplicate_object(selected_obj_data, new_clipgen_name, config)
         #   If CMSG already exists, append to it.
         if is_register_new_event == False:
-            print(selected_cmsg_obj_data.get('id'))
-            parser.append_to_array(selected_cmsg_obj_data.get('id'), "generators", new_clipgen_pointer_id, is_pointer=True)
+            xml_parser.append_to_array(selected_new_cmsg_obj_data.get('id'), "generators", new_clipgen_pointer_id, is_pointer=True)
         else:
             #   If there is a cmsg object...
             if selected_traced_objects[0] is not None:
                 #   Find and duplicate cmsg
-                cmsg_obj_data = parser.find_object_by_id(selected_traced_objects[0])
-                parser.duplicate_object(cmsg_obj_data, new_cmsg_name, config)
+                cmsg_obj_data = xml_parser.find_object_by_id(selected_traced_objects[0])
+                xml_parser.duplicate_object(cmsg_obj_data, new_cmsg_name, config)
+                
                 #   If there is a stateInfo object...
                 if selected_traced_objects[1] is not None:
-                    #   Find and duplicate cmsg
-                    stateinfo_obj_data = parser.find_object_by_id(selected_traced_objects[1])
-                    parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
+                    #   Find and duplicate stateinfo
+                    stateinfo_obj_data = xml_parser.find_object_by_id(selected_traced_objects[1])
+                    xml_parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
+                    
+                    new_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(new_stateinfo_name)
+                    hks_parser.append_def(new_hks_stateinfo_name + " = ")
+                    print(new_hks_stateinfo_name)                    
             
-    parser.save_xml(xml_file_path)
+    xml_parser.save_xml(xml_file_path)
     update_xml_header(xml_file_path)
         
 # ----- UI Setup -----
@@ -414,21 +401,21 @@ entry_new_id = tk.Entry(root)
 entry_new_id.grid(row=1, column=1)
 entry_new_id.insert(0, "a050_300050")
 
-text = entry_new_id.get()
+# text = entry_new_id.get()
 
-if '_' not in text:
-    print("Error: Underscore separator not found.")
-else:
-    parts = text.split('_')
+# if '_' not in text:
+#     print("Error: Underscore separator not found.")
+# else:
+#     parts = text.split('_')
 
-    if len(parts) != 2:
-        print("Error: String does not contain exactly two parts.")
-    elif not parts[0].startswith('a'):
-        print("Error: First part does not start with 'a'.")
-    else:
-        part1, part2 = parts
-        entry_a_offset = part1
-        entry_anim_id = part2
+#     if len(parts) != 2:
+#         print("Error: String does not contain exactly two parts.")
+#     elif not parts[0].startswith('a'):
+#         print("Error: First part does not start with 'a'.")
+#     else:
+#         part1, part2 = parts
+#         entry_a_offset = part1
+#         entry_anim_id = part2
         
 # tk.Label(root, text="Animation offset (Example: '050', '101')").grid(row=1, column=0, sticky="e")
 # entry_a_offset = tk.Entry(root)
