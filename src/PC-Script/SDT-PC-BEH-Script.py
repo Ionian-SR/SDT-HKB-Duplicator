@@ -393,7 +393,10 @@ def run_parser():
                     selected_hks_stateinfo_name_line = hks_parser.find_hkb_state(selected_hks_stateinfo_name)
                     #   Find hkb_state inside g_param array
                     modified_line = re.sub(r"\[.*?\]", f"[{new_hks_stateinfo_name}]", selected_hks_stateinfo_name_line)
+                    #   Append to g_param array
                     hks_parser.append_g_param(modified_line)
+                    #   Append functions
+                    hks_parser.append_functions(new_stateinfo_name, new_hks_stateinfo_name)
                     #print(new_hks_stateinfo_name + " = " + str(new_max_number))  
                     #print(selected_hks_stateinfo_name + " = " + str(new_max_number))                    
                                       

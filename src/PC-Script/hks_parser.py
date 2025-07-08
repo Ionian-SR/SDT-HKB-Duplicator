@@ -122,3 +122,23 @@ class HKSParser:
         # Write back to file
         with open(self.hks_file, 'w', encoding='utf-8') as f:
             f.write(updated_content)
+
+    def append_functions(self, state_name, hkb_state_name):
+        template = f'''
+function {state_name}_onUpdate()
+    UpdateState({hkb_state_name})
+end
+
+function {state_name}_onActivate()
+    return
+    
+end
+
+function {state_name}_onDeactivate()
+    return
+    
+end
+'''
+        with open(self.hks_file, 'a', encoding='utf-8') as f:
+            f.write('\n' + template)
+        
