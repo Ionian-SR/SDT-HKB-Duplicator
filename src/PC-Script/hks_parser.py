@@ -64,3 +64,61 @@ class HKSParser:
             f.writelines(lines)
 
         print("Reformatted g_paramHkbState block.")
+    
+    def get_max_number(self):
+        with open(self.hks_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Find all integers using regex
+        numbers = list(map(int, re.findall(r'\b\d+\b', content)))
+        if not numbers:
+            return 1  # Default start if no numbers found
+
+        return max(numbers)
+    
+    def find_hkb_state(self, state_name):
+        with open(self.hks_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        # Regex to find the full line
+        pattern = rf"\[\s*{re.escape(state_name)}\s*\]\s*=\s*\{{[^}}]*\}},?"
+
+        # Search for the line
+        match = re.search(pattern, content)
+        return match.group(0)
+    
+    def append_g_param(self, new_line):
+        with open(self.hks_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        param_name = 'g_paramHkbState'
+        pattern = rf"({param_name}\s*=\s*\{{)(.*?)(\n\}})"
+        match = re.search(pattern, content, re.DOTALL)
+
+        if not match:
+            raise ValueError(f"Could not find {param_name} block in the file.")
+
+        # Break out the parts
+        start_block = match.group(1)
+        block_body = match.group(2).strip()
+        end_block = match.group(3)
+
+        # Split block body into lines and clean up
+        block_lines = [line.strip() for line in block_body.splitlines() if line.strip()]
+        block_lines.append(new_line.strip())
+
+        # Add commas to all but the last line
+        #for i in range(len(block_lines) - 1):
+        block_lines[-2] = re.sub(r",?\s*$", ",", block_lines[-2])  # force comma
+        block_lines[-1] = re.sub(r",\s*$", "", block_lines[-1])      # remove comma from last
+
+        # Indent all lines
+        indented_block = ['    ' + line for line in block_lines]
+
+        # Reconstruct the full content
+        modified_block = start_block + "\n" + "\n".join(indented_block) + end_block
+        updated_content = re.sub(pattern, modified_block, content, flags=re.DOTALL)
+
+        # Write back to file
+        with open(self.hks_file, 'w', encoding='utf-8') as f:
+            f.write(updated_content)

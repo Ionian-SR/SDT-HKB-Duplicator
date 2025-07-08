@@ -380,9 +380,23 @@ def run_parser():
                     stateinfo_obj_data = xml_parser.find_object_by_id(selected_traced_objects[1])
                     xml_parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
                     
+                    #   MODIFY CMSG 
+                    #   Convert new stateinfo name to HKS_STATE
                     new_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(new_stateinfo_name)
-                    hks_parser.append_def(new_hks_stateinfo_name + " = ")
-                    print(new_hks_stateinfo_name)                    
+                    #   Find largest number and add 1 to it
+                    new_max_number = hks_parser.get_max_number() + 1
+                    #   Append new defintion above g_param
+                    hks_parser.append_def(new_hks_stateinfo_name + " = " + str(new_max_number))
+                    
+                    #   Find OG HKB_STATE
+                    selected_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(stateinfo_obj_data['fields']['name'])
+                    selected_hks_stateinfo_name_line = hks_parser.find_hkb_state(selected_hks_stateinfo_name)
+                    #   Find hkb_state inside g_param array
+                    modified_line = re.sub(r"\[.*?\]", f"[{new_hks_stateinfo_name}]", selected_hks_stateinfo_name_line)
+                    hks_parser.append_g_param(modified_line)
+                    #print(new_hks_stateinfo_name + " = " + str(new_max_number))  
+                    #print(selected_hks_stateinfo_name + " = " + str(new_max_number))                    
+                                      
             
     xml_parser.save_xml(xml_file_path)
     update_xml_header(xml_file_path)
