@@ -342,7 +342,7 @@ def run_parser():
 
     #   Append new animation to animationNames array. Update Count. Take new internalID.
     #   Object 7 contains animationNames eventInfos, and eventNames
-    xml_parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\a{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
+    xml_parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
     new_animationInternalId = xml_parser.find_array_count("object7", "animationNames") - 1
 
     #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
