@@ -54,12 +54,18 @@ def backup_project_files(files_dict, project_name="project", backup_dir="backups
 
     print(f"Backup complete: {zip_path}")
 
-def select_xml_file():
+def select_only_xml_file():
     global xml_file_path
+    global hks_file_path
+    global event_txt_path
+    global state_txt_path
     file_path = filedialog.askopenfilename(
         title="Select XML File",
         filetypes=[("XML files", "*.xml")]
     )
+    hks_file_path = None
+    event_txt_path = None
+    state_txt_path = None
     if file_path:
         xml_file_path = file_path
         xml_label.config(text=f"Selected: {file_path}")
@@ -235,12 +241,9 @@ def run_parser():
     if not xml_file_path:
         result_label.config(text="No XML found. Please open a project.")
         return
-    
+
     #   Set up XMLParser with XML file path
     xml_parser = XMLParser(xml_file_path)
-    
-    #   Set up CMSGParser
-    hks_parser = HKSParser(hks_file_path)
 
     #   Seperate text from input
     text = entry_new_id.get()
@@ -297,15 +300,24 @@ def run_parser():
         is_register_new_event = False
         print("\033[93mExisting CMSG found. Appending to CMSG array.\033[0m")
 
-    #   Backup project files
-    backup_project_files(
-        files_dict={
-            "behavior_xml": xml_file_path,
-            "cmsg_script": hks_file_path,
-            "event_id_map": event_txt_path,
-            "state_id_map": state_txt_path
-        },
-    )
+    
+    modify_hks = False  # default to False
+
+    if hks_file_path and os.path.isfile(hks_file_path):
+        hks_parser = HKSParser(hks_file_path)
+        modify_hks = True
+
+        # Backup project files
+        backup_project_files(
+            files_dict={
+                "behavior_xml": xml_file_path,
+                "cmsg_script": hks_file_path,
+                "event_id_map": event_txt_path,
+                "state_id_map": state_txt_path
+            },
+        )
+    else:
+        hks_parser = None
 
     #   If registering a new event...
     #   - Append txt files
@@ -313,15 +325,15 @@ def run_parser():
     #   - Append to eventNames and eventInfos array in xml
     if is_register_new_event == True:
         #   Append txt files
-        append_to_eventnameid(event_txt_path, new_event_name)
-        append_to_statenameid(state_txt_path, new_stateinfo_name)
-        
-        #   Reformat g_paramHkbState in cmsg
-        hks_parser.reformat_g_paramHkbState()
+        if modify_hks:
+            append_to_eventnameid(event_txt_path, new_event_name)
+            append_to_statenameid(state_txt_path, new_stateinfo_name)
+            
+            #   Reformat g_paramHkbState in cmsg
+            hks_parser.reformat_g_paramHkbState()
 
         #   Append eventNames
         xml_parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
-        #new_eventNames_count = xml_parser.find_array_count("object7", "eventNames")
 
         #   Append eventInfos
         xml_parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
@@ -380,27 +392,28 @@ def run_parser():
                     stateinfo_obj_data = xml_parser.find_object_by_id(selected_traced_objects[1])
                     xml_parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
                     
-                    #   MODIFY CMSG HKS
-                    #   Convert new stateinfo name to HKS_STATE
-                    new_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(new_stateinfo_name)
-                    #   Find largest number and add 1 to it
-                    new_max_number = hks_parser.get_max_number() + 1
-                    #   Append new defintion above g_param
-                    hks_parser.append_def(new_hks_stateinfo_name + " = " + str(new_max_number))
-                    
-                    #   Find OG HKB_STATE
-                    selected_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(stateinfo_obj_data['fields']['name'])
-                    #   Find hkb_state inside g_param array
-                    selected_hks_stateinfo_name_line = hks_parser.find_hkb_state(selected_hks_stateinfo_name)
-                    #   If there is an entry in the array, add
-                    if selected_hks_stateinfo_name_line is not None:
+                    if modify_hks:
+                        #   MODIFY CMSG HKS
+                        #   Convert new stateinfo name to HKS_STATE
+                        new_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(new_stateinfo_name)
+                        #   Find largest number and add 1 to it
+                        new_max_number = hks_parser.get_max_number() + 1
+                        #   Append new defintion above g_param
+                        hks_parser.append_def(new_hks_stateinfo_name + " = " + str(new_max_number))
+                        
+                        #   Find OG HKB_STATE
+                        selected_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(stateinfo_obj_data['fields']['name'])
                         #   Find hkb_state inside g_param array
-                        modified_line = re.sub(r"\[.*?\]", f"[{new_hks_stateinfo_name}]", selected_hks_stateinfo_name_line)
-                        #   Append to g_param array
-                        hks_parser.append_g_param(modified_line)
-                    #   Append function
-                    hks_parser.append_functions(new_stateinfo_name, new_hks_stateinfo_name)
-                                      
+                        selected_hks_stateinfo_name_line = hks_parser.find_hkb_state(selected_hks_stateinfo_name)
+                        #   If there is an entry in the array, add
+                        if selected_hks_stateinfo_name_line is not None:
+                            #   Find hkb_state inside g_param array
+                            modified_line = re.sub(r"\[.*?\]", f"[{new_hks_stateinfo_name}]", selected_hks_stateinfo_name_line)
+                            #   Append to g_param array
+                            hks_parser.append_g_param(modified_line)
+                        #   Append function
+                        hks_parser.append_functions(new_stateinfo_name, new_hks_stateinfo_name)
+                                        
             
     xml_parser.save_xml(xml_file_path)
     update_xml_header(xml_file_path)
@@ -462,6 +475,8 @@ btn_create_project.grid(row=0, column=0, padx=5)
 btn_open_project = tk.Button(project_buttons_frame, text="Open Project", command=lambda: open_project())
 btn_open_project.grid(row=0, column=1, padx=5)
 
+btn_open_only_xml = tk.Button(project_buttons_frame, text="Open only XML", command=lambda: select_only_xml_file())
+btn_open_only_xml.grid(row=0, column=2, padx=5)
 
 #xml_button = tk.Button(root, text="Browse XML File", command=select_xml_file)
 #xml_button.grid(row=6, columnspan=2, pady=(5, 0))
@@ -487,7 +502,7 @@ btn_open_project.grid(row=0, column=1, padx=5)
 #     checkbox_vars.append(var)
 
 run_button = tk.Button(root, text="Run", command=run_parser)
-run_button.grid(row=8, columnspan=2, pady=10)
+run_button.grid(row=8, columnspan=3, pady=10)
 
 result_label = tk.Label(root, text="")
 result_label.grid(row=9, columnspan=2)
