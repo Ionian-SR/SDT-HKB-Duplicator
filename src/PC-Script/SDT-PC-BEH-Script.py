@@ -251,11 +251,11 @@ def run_parser():
     if '_' not in text:
         print("Error: Underscore separator not found.")
     else:
-        parts = text.split('_')
+        parts = text.split("_", 1) 
 
-        if len(parts) != 2:
-            print("Error: String does not contain exactly two parts.")
-        elif not parts[0].startswith('a'):
+        # if len(parts) != 2:
+        #     print("Error: String does not contain exactly two parts.")
+        if not parts[0].startswith('a'):
             print("Error: First part does not start with 'a'.")
         else:
             part1, part2 = parts
