@@ -1,0 +1,9 @@
+{
+  "project_name": "SR-Development",
+  "files": {
+    "behavior_xml": "C:/Program Files (x86)/Steam/steamapps/common/Sekiro/SR-Development/chr/c0000-behbnd-dcx/Behaviors/c0000.xml",
+    "cmsg_script": "C:/Program Files (x86)/Steam/steamapps/common/Sekiro/SR-Development/action/script/c0000_cmsg.hks",
+    "event_id_map": "C:/Program Files (x86)/Steam/steamapps/common/Sekiro/SR-Development/action/eventnameid.txt",
+    "state_id_map": "C:/Program Files (x86)/Steam/steamapps/common/Sekiro/SR-Development/action/statenameid.txt"
+  }
+}
