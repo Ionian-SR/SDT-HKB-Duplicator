@@ -264,7 +264,7 @@ def run_parser():
     new_anim_id = entry_anim_id
     new_cmsg_name = f"{entry_new_name.get()}_CMSG"
     new_stateinfo_name = f"{entry_new_name.get()}"
-    new_clipgen_name = f"a{a_offset}_{new_anim_id}"
+    new_clipgen_name = f"{a_offset}_{new_anim_id}"
     new_event_name = f"W_{new_stateinfo_name}"
     select_name = entry_select_name.get()
     #   Create variables
@@ -380,7 +380,7 @@ def run_parser():
                     stateinfo_obj_data = xml_parser.find_object_by_id(selected_traced_objects[1])
                     xml_parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
                     
-                    #   MODIFY CMSG 
+                    #   MODIFY CMSG HKS
                     #   Convert new stateinfo name to HKS_STATE
                     new_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(new_stateinfo_name)
                     #   Find largest number and add 1 to it
@@ -390,15 +390,16 @@ def run_parser():
                     
                     #   Find OG HKB_STATE
                     selected_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(stateinfo_obj_data['fields']['name'])
-                    selected_hks_stateinfo_name_line = hks_parser.find_hkb_state(selected_hks_stateinfo_name)
                     #   Find hkb_state inside g_param array
-                    modified_line = re.sub(r"\[.*?\]", f"[{new_hks_stateinfo_name}]", selected_hks_stateinfo_name_line)
-                    #   Append to g_param array
-                    hks_parser.append_g_param(modified_line)
-                    #   Append functions
+                    selected_hks_stateinfo_name_line = hks_parser.find_hkb_state(selected_hks_stateinfo_name)
+                    #   If there is an entry in the array, add
+                    if selected_hks_stateinfo_name_line is not None:
+                        #   Find hkb_state inside g_param array
+                        modified_line = re.sub(r"\[.*?\]", f"[{new_hks_stateinfo_name}]", selected_hks_stateinfo_name_line)
+                        #   Append to g_param array
+                        hks_parser.append_g_param(modified_line)
+                    #   Append function
                     hks_parser.append_functions(new_stateinfo_name, new_hks_stateinfo_name)
-                    #print(new_hks_stateinfo_name + " = " + str(new_max_number))  
-                    #print(selected_hks_stateinfo_name + " = " + str(new_max_number))                    
                                       
             
     xml_parser.save_xml(xml_file_path)

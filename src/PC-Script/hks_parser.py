@@ -5,7 +5,7 @@ class HKSParser:
         self.hks_file = hks_file
     
     def append_def(self, definition):
-        with open(self.hks_file, 'r') as f:
+        with open(self.hks_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
         output_lines = []
@@ -14,7 +14,7 @@ class HKSParser:
                 output_lines.append(definition + "\n")  # insert before the target line
             output_lines.append(line)
 
-        with open(self.hks_file, 'w') as f:
+        with open(self.hks_file, 'w', encoding='utf-8') as f:
             f.writelines(output_lines)
 
         print("✅ Inserted text above 'g_paramHkbState'")
@@ -82,10 +82,12 @@ class HKSParser:
             
         # Regex to find the full line
         pattern = rf"\[\s*{re.escape(state_name)}\s*\]\s*=\s*\{{[^}}]*\}},?"
-
-        # Search for the line
         match = re.search(pattern, content)
-        return match.group(0)
+        # Search for the line
+        if match:
+            return match.group(0)
+        else:
+            return None
     
     def append_g_param(self, new_line):
         with open(self.hks_file, 'r', encoding='utf-8') as f:
