@@ -235,6 +235,34 @@ def to_hkb_state(text):
     s2 = re.sub(r'(\D)(\d)', r'\1_\2', s1)
     return s2.upper()
 
+def get_id_from_file(event_file, search_name):
+    # Step 1: Detect encoding
+    try:
+        with open(event_file, 'r', encoding='utf-8-sig') as f:
+            lines = f.readlines()
+        encoding_used = 'utf-8-sig'
+    except UnicodeDecodeError:
+        with open(event_file, 'r', encoding='cp932') as f:
+            lines = f.readlines()
+        encoding_used = 'cp932'
+
+    # Step 2: Search for the event name
+    for line in lines:
+        if '=' in line:
+            parts = line.split('=')
+            if len(parts) != 2:
+                continue
+            try:
+                event_id = int(parts[0].strip())
+                event_name = parts[1].strip().strip('"')
+                if event_name == search_name:
+                    return event_id
+            except ValueError:
+                continue
+
+    # Step 3: Not found
+    return None
+
 def run_parser():
     global xml_file_path
     global hks_file_path
@@ -346,7 +374,7 @@ def run_parser():
 
         #   Append eventInfos
         xml_parser.append_to_array(eventInfos_obj_id, "eventInfos", eventInfo_entry, is_pointer=False)
-        new_eventInfos_count = xml_parser.find_array_count("object4", "eventInfos") - 1
+        new_eventInfos_count = xml_parser.find_array_count(eventInfos_obj_id, "eventInfos") - 1
             
         #   Append new stateInfo object to stateMachine object
         xml_parser.append_to_array(selected_traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
