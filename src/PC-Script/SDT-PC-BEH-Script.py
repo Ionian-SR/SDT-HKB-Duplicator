@@ -323,6 +323,15 @@ def run_parser():
     #   - Append txt files
     #   - Reformat and append cmsg file
     #   - Append to eventNames and eventInfos array in xml
+        
+    #   Find object that contains animationnames, and eventNames
+    animationNames_obj_data = xml_parser.find_object_by_field('field[@name="animationNames"]')
+    animationNames_obj_id = animationNames_obj_data['id']
+    
+    #   Find object that contains eventInfos
+    eventInfos_obj_data = xml_parser.find_object_by_field('field[@name="eventInfos"]')
+    eventInfos_obj_id = eventInfos_obj_data['id']
+
     if is_register_new_event == True:
         #   Append txt files
         if modify_hks:
@@ -333,10 +342,10 @@ def run_parser():
             hks_parser.reformat_g_paramHkbState()
 
         #   Append eventNames
-        xml_parser.append_to_array("object7", "eventNames", f"{new_event_name}", is_pointer=False)
+        xml_parser.append_to_array(animationNames_obj_id, "eventNames", f"{new_event_name}", is_pointer=False)
 
         #   Append eventInfos
-        xml_parser.append_to_array("object4", "eventInfos", eventInfo_entry, is_pointer=False)
+        xml_parser.append_to_array(eventInfos_obj_id, "eventInfos", eventInfo_entry, is_pointer=False)
         new_eventInfos_count = xml_parser.find_array_count("object4", "eventInfos") - 1
             
         #   Append new stateInfo object to stateMachine object
@@ -353,9 +362,8 @@ def run_parser():
         xml_parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
 
     #   Append new animation to animationNames array. Update Count. Take new internalID.
-    #   Object 7 contains animationNames eventInfos, and eventNames
-    xml_parser.append_to_array("object7", "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
-    new_animationInternalId = xml_parser.find_array_count("object7", "animationNames") - 1
+    xml_parser.append_to_array(animationNames_obj_id, "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
+    new_animationInternalId = xml_parser.find_array_count(animationNames_obj_id, "animationNames") - 1
 
     #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
     config = {

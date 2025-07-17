@@ -218,16 +218,27 @@ class XMLParser:
             # Collect object data
             obj_data = self.collect_object_data(obj)
             print(f"Collected data for object ID '{obj_id}'")
-            
-            # Get the list of traced objects
-            # traced_objects = self.trace_references(obj_id)
-            # print(f"Traced objects: {traced_objects}")
 
             # return obj_data, traced_objects
             return obj_data
 
         print(f"Object with ID '{obj_id}' not found.")
         return None, []
+
+    def find_object_by_field(self, xpath_string, index=0):
+        #matches = self.root.findall(f".//{xpath_string}")
+        
+        for obj in self.root.findall(".//object"):
+            for field in obj.findall(f'.//{xpath_string}'):
+                #if field.attrib['value'] == name_value:
+                obj_data = self.collect_object_data(obj)
+                print(f"Collected data for object with field: '{xpath_string}'")
+                
+                # Get the list of traced objects
+                #traced_objects = self.trace_references(obj_data["id"])
+                #print(f"Traced objects: {traced_objects}")
+                return obj_data#, traced_objects
+
 
     def _trace(self, obj_id, visited, referenced_objects, trace_limit=4):
         """
