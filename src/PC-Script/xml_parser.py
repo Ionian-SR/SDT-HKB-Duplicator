@@ -194,12 +194,12 @@ class XMLParser:
                     print(f"Collected data for object '{name_value}'")
                     
                     # Get the list of traced objects
-                    traced_objects = self.trace_references(obj_data["id"])
-                    print(f"Traced objects: {traced_objects}")
-                    return obj_data, traced_objects
+                    #traced_objects = self.trace_references(obj_data["id"])
+                    #print(f"Traced objects: {traced_objects}")
+                    return obj_data
 
         print(f"Object with name '{name_value}' not found.")
-        return None, []
+        return None
 
     def find_object_by_id(self, obj_id):
         """
@@ -238,6 +238,38 @@ class XMLParser:
                 #traced_objects = self.trace_references(obj_data["id"])
                 #print(f"Traced objects: {traced_objects}")
                 return obj_data#, traced_objects
+
+    def find_transition_record_by_field_value(self, obj_id, field_name, target_value):
+        obj = self.root.find(f".//object[@id='{obj_id}']")
+        if obj is None:
+            print(f"No object found with id '{obj_id}'")
+            return None
+
+        transitions_field = obj.find(".//field[@name='transitions']")
+        if transitions_field is None:
+            print("No 'transitions' field found in object.")
+            return None
+
+        array = transitions_field.find("array")
+        if array is None:
+            print("No array found inside 'transitions' field.")
+            return None
+
+        for record in array.findall("record"):
+            target_field = record.find(f"./field[@name='{field_name}']/integer")
+            if target_field is not None and target_field.get("value") == str(target_value):
+                # Get the toStateId from the same record 
+                transition_pointer_id = record.find("./field[@name='transition']/pointer")
+                if transition_pointer_id is not None:
+                    transition_pointer_id = transition_pointer_id.get("id")
+                    print(f"Found transition pointer id: {transition_pointer_id}")
+                    return transition_pointer_id
+                else:
+                    print(f"No transition pointer id found")
+                    return None
+
+        print(f"No record found with {field_name} = {target_value}")
+        return None
 
 
     def _trace(self, obj_id, visited, referenced_objects, trace_limit=4):
