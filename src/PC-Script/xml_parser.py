@@ -83,6 +83,44 @@ class XMLParser:
         else:
             print(f"Object with ID '{obj_id}' not found.")
 
+    def get_last_array_element(self, obj_id, field_name):
+        """
+        Retrieves the last element from the <array> inside the specified field within a specific object.
+
+        Args:
+            obj_id (str): The ID of the object containing the field.
+            field_name (str): The name of the field containing the array.
+
+        Returns:
+            lxml.etree._Element | None: The last element in the array, or None if not found.
+        """
+        # Locate the object by ID
+        obj = self.root.find(f".//object[@id='{obj_id}']")
+        if obj is None:
+            print(f"Object with ID '{obj_id}' not found.")
+            return None
+
+        # Locate the specified field within the object
+        field = obj.find(f".//field[@name='{field_name}']")
+        if field is None:
+            print(f"Field '{field_name}' not found in object '{obj_id}'.")
+            return None
+
+        # Find the array within the field
+        array = field.find("array")
+        if array is None:
+            print(f"Field '{field_name}' does not contain an <array> in object '{obj_id}'.")
+            return None
+
+        # Check if array has elements
+        if len(array) == 0:
+            print(f"Array '{field_name}' in object '{obj_id}' is empty.")
+            return None
+
+        # Return the last child element
+        last_element = array[-1]
+        return last_element
+
     def get_largest_obj(self):
         last_num = -1
         for obj in self.root.findall('.//object'):

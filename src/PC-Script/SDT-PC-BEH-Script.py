@@ -361,6 +361,7 @@ def run_parser():
     eventInfos_obj_data = xml_parser.find_object_by_field('field[@name="eventInfos"]')
     eventInfos_obj_id = eventInfos_obj_data['id']
 
+
     if is_register_new_event == True:
         #   Append txt files
         if modify_hks:
@@ -370,6 +371,8 @@ def run_parser():
             #   Reformat g_paramHkbState in cmsg
             if edit_cmsg_hks_var.get():
                 hks_parser.reformat_g_paramHkbState()
+
+        print(xml_parser.get_last_array_element(animationNames_obj_id, "eventNames"))
 
         #   Append eventNames
         xml_parser.append_to_array(animationNames_obj_id, "eventNames", f"{new_event_name}", is_pointer=False)
