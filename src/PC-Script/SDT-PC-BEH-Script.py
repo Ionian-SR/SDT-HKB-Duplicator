@@ -263,19 +263,7 @@ def get_id_from_file(event_file, search_name):
     # Step 3: Not found
     return None
 
-def run_parser():
-    global xml_file_path
-    global hks_file_path
-    if not xml_file_path:
-        result_label.config(text="No XML found. Please open a project.")
-        return
-
-    #   Set up XMLParser with XML file path
-    xml_parser = XMLParser(xml_file_path)
-
-    #   Seperate text from input
-    text = entry_new_id.get()
-
+def seperate_id_offset(text):
     if '_' not in text:
         print("Error: Underscore separator not found.")
     else:
@@ -287,15 +275,28 @@ def run_parser():
             print("Error: First part does not start with 'a'.")
         else:
             part1, part2 = parts
-            entry_a_offset = part1
-            entry_anim_id = part2
+            return part1, part2
+            #entry_a_offset = part1
+            #entry_anim_id = part2
 
+
+
+def run_parser():
+    global xml_file_path
+    global hks_file_path
+    if not xml_file_path:
+        result_label.config(text="No XML found. Please open a project.")
+        return
+
+    #   Set up XMLParser with XML file path
+    xml_parser = XMLParser(xml_file_path)
+
+    #   Seperate text from input
+    a_offset, new_anim_id = seperate_id_offset(entry_new_animationName.get())
     #   Create new names
-    a_offset = entry_a_offset
-    new_anim_id = entry_anim_id
-    new_cmsg_name = f"{entry_new_name.get()}_CMSG"
-    new_stateinfo_name = f"{entry_new_name.get()}"
-    new_clipgen_name = f"{a_offset}_{new_anim_id}"
+    new_cmsg_name = f"{entry_new_stateinfo_name.get()}_CMSG"
+    new_stateinfo_name = f"{entry_new_stateinfo_name.get()}"
+    new_clipgen_name = f"{entry_new_name}"
     new_event_name = f"W_{new_stateinfo_name}"
     select_name = entry_select_name.get()
     #   Create variables
@@ -308,11 +309,9 @@ def run_parser():
     eventInfo_entry = xml_parser.generate_event_info_entry()
 
     is_register_new_event = True
-
     #   Check if desired object already exists
     #   If NOT, stop
     desired_obj_data = xml_parser.find_object_by_name(new_clipgen_name)
-    print(desired_obj_data)
     if desired_obj_data is not None:
         print("\033[91mDesired object already exists. Cancelling operation.\033[0m")
         return
@@ -369,7 +368,8 @@ def run_parser():
             append_to_statenameid(state_txt_path, new_stateinfo_name)
             
             #   Reformat g_paramHkbState in cmsg
-            hks_parser.reformat_g_paramHkbState()
+            if edit_cmsg_hks_var.get():
+                hks_parser.reformat_g_paramHkbState()
 
         #   Append eventNames
         xml_parser.append_to_array(animationNames_obj_id, "eventNames", f"{new_event_name}", is_pointer=False)
@@ -396,7 +396,7 @@ def run_parser():
         xml_parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
 
     #   Append new animation to animationNames array. Update Count. Take new internalID.
-    xml_parser.append_to_array(animationNames_obj_id, "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\{a_offset}\\{new_clipgen_name}.hkx", is_pointer=False)
+    xml_parser.append_to_array(animationNames_obj_id, "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\{a_offset}\\{new_anim_id}.hkx", is_pointer=False)
     new_animationInternalId = xml_parser.find_array_count(animationNames_obj_id, "animationNames") - 1
 
     #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
@@ -462,48 +462,36 @@ def run_parser():
         
 # ----- UI Setup -----
 root = tk.Tk()
-root.title("SDT HKB Script")
+root.title("SDT HKB Duplicator")
 
-tk.Label(root, text="Type in animation ID to duplicate (Example: a050_300040)").grid(row=0, column=0, sticky="e")
+tk.Label(root, text='Type in Clipgen "name" to duplicate (Example: a050_300040, a000_013800_hkx_AutoSet_00)').grid(row=0, column=0, sticky="e")
 entry_select_name = tk.Entry(root)
 entry_select_name.grid(row=0, column=1)
 entry_select_name.insert(0, "a050_300040")
 
-tk.Label(root, text="New animation ID (Example: a050_300050)").grid(row=1, column=0, sticky="e")
-entry_new_id = tk.Entry(root)
-entry_new_id.grid(row=1, column=1)
-entry_new_id.insert(0, "a050_300050")
-
-# text = entry_new_id.get()
-
-# if '_' not in text:
-#     print("Error: Underscore separator not found.")
-# else:
-#     parts = text.split('_')
-
-#     if len(parts) != 2:
-#         print("Error: String does not contain exactly two parts.")
-#     elif not parts[0].startswith('a'):
-#         print("Error: First part does not start with 'a'.")
-#     else:
-#         part1, part2 = parts
-#         entry_a_offset = part1
-#         entry_anim_id = part2
-        
-# tk.Label(root, text="Animation offset (Example: '050', '101')").grid(row=1, column=0, sticky="e")
-# entry_a_offset = tk.Entry(root)
-# entry_a_offset.grid(row=1, column=1)
-# entry_a_offset.insert(0, "050")
-
-# tk.Label(root, text="New Animation ID (Example: 300050)").grid(row=2, column=0, sticky="e")
-# entry_anim_id = tk.Entry(root)
-# entry_anim_id.grid(row=2, column=1)
-# entry_anim_id.insert(0, "300050")
-
-tk.Label(root, text="New Animation Name (Example: GroundAttackCombo6)").grid(row=3, column=0, sticky="e")
+tk.Label(root, text='New Clipgen "name" (Example: a050_300040, a000_013800_hkx_AutoSet_00)').grid(row=1, column=0, sticky="e")
 entry_new_name = tk.Entry(root)
-entry_new_name.grid(row=3, column=1)
-entry_new_name.insert(0, "GroundAttackCombo6")
+entry_new_name.grid(row=1, column=1)
+entry_new_name.insert(0, "a050_300050")
+
+tk.Label(root, text='New Clipgen "animationName" (Example: a050_300050, a000_013800)').grid(row=2, column=0, sticky="e")
+entry_new_animationName = tk.Entry(root)
+entry_new_animationName.grid(row=2, column=1)
+entry_new_animationName.insert(0, "a050_300050")
+
+tk.Label(root, text='New Stateinfo "name" (Example: GroundAttackCombo6, ThrowDef13800)').grid(row=3, column=0, sticky="e")
+entry_new_stateinfo_name = tk.Entry(root)
+entry_new_stateinfo_name.grid(row=3, column=1)
+entry_new_stateinfo_name.insert(0, "GroundAttackCombo6")
+
+edit_cmsg_hks_var = tk.BooleanVar(value=False)
+
+check_edit_cmsg_hks = tk.Checkbutton(
+    root,
+    text="Edit cmsg_hks file? Only check this for c0000.xml edits",
+    variable=edit_cmsg_hks_var
+)
+check_edit_cmsg_hks.grid(row=4, columnspan=2, pady=5)
 
 project_buttons_frame = tk.Frame(root)
 project_buttons_frame.grid(row=7, columnspan=2)
@@ -517,31 +505,8 @@ btn_create_project.grid(row=0, column=0, padx=5)
 btn_open_project = tk.Button(project_buttons_frame, text="Open Project", command=lambda: open_project())
 btn_open_project.grid(row=0, column=1, padx=5)
 
-btn_open_only_xml = tk.Button(project_buttons_frame, text="Open only XML", command=lambda: select_only_xml_file())
-btn_open_only_xml.grid(row=0, column=2, padx=5)
-
-#xml_button = tk.Button(root, text="Browse XML File", command=select_xml_file)
-#xml_button.grid(row=6, columnspan=2, pady=(5, 0))
-
-#xml_label = tk.Label(root, text="No file selected")
-#xml_label.grid(row=5, columnspan=2)    
-
-
-# tk.Label(root, text="new_cmsg_name").grid(row=3, column=0, sticky="e")
-# entry_cmsg_name = tk.Entry(root)
-# entry_cmsg_name.grid(row=2, column=1)
-
-# tk.Label(root, text="new_stateinfo_name").grid(row=4, column=0, sticky="e")
-# entry_stateinfo_name = tk.Entry(root)
-# entry_stateinfo_name.grid(row=3, column=1)
-
-# Arbitrary checkboxes for future logic
-# checkbox_vars = []
-# for i, label in enumerate(["Extra Transition", "Enable Debug", "Log Only"]):
-#     var = tk.BooleanVar()
-#     chk = tk.Checkbutton(root, text=label, variable=var)
-#     chk.grid(row=5 + i, columnspan=2, sticky="w")
-#     checkbox_vars.append(var)
+#btn_open_only_xml = tk.Button(project_buttons_frame, text="Open only XML", command=lambda: select_only_xml_file())
+#btn_open_only_xml.grid(row=0, column=2, padx=5)
 
 run_button = tk.Button(root, text="Run", command=run_parser)
 run_button.grid(row=8, columnspan=3, pady=10)
