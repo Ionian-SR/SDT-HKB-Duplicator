@@ -294,6 +294,7 @@ def run_parser():
     #   Seperate text from input
     a_offset, new_anim_id = seperate_id_offset(entry_new_animationName.get())
     new_animationName = entry_new_animationName.get()
+    new_anim_id_stripped = new_anim_id.lstrip("0")
     #   Create new names
     new_cmsg_name = f"{entry_new_stateinfo_name.get()}_CMSG"
     new_stateinfo_name = f"{entry_new_stateinfo_name.get()}"
@@ -419,7 +420,7 @@ def run_parser():
         "new_toStateId": new_toStateId,
         "new_userData": new_userData,
         "new_animationInternalId": new_animationInternalId,
-        "new_anim_id": new_anim_id,
+        "new_anim_id": new_anim_id_stripped,
     }
 
     #   If there is a clipGen object...
