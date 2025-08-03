@@ -293,10 +293,11 @@ def run_parser():
 
     #   Seperate text from input
     a_offset, new_anim_id = seperate_id_offset(entry_new_animationName.get())
+    new_animationName = entry_new_animationName.get()
     #   Create new names
     new_cmsg_name = f"{entry_new_stateinfo_name.get()}_CMSG"
     new_stateinfo_name = f"{entry_new_stateinfo_name.get()}"
-    new_clipgen_name = f"{entry_new_name}"
+    new_clipgen_name = f"{entry_new_name.get()}"
     new_event_name = f"W_{new_stateinfo_name}"
     select_name = entry_select_name.get()
     #   Create variables
@@ -372,8 +373,6 @@ def run_parser():
             if edit_cmsg_hks_var.get():
                 hks_parser.reformat_g_paramHkbState()
 
-        print(xml_parser.get_last_array_element(animationNames_obj_id, "eventNames"))
-
         #   Append eventNames
         xml_parser.append_to_array(animationNames_obj_id, "eventNames", f"{new_event_name}", is_pointer=False)
 
@@ -398,8 +397,13 @@ def run_parser():
         new_entry = xml_parser.generate_transition_entry(transition_pointer_id, new_eventInfos_count, new_toStateId)
         xml_parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
 
+    #   Get last entry of animationNames to get chr id
+    last_animationNames_entry = ET.tostring(xml_parser.get_last_array_element(animationNames_obj_id, "animationNames"))
+    chr_id = xml_parser.get_chr_id(last_animationNames_entry)
+    print(f"CHR ID: {chr_id}")
+
     #   Append new animation to animationNames array. Update Count. Take new internalID.
-    xml_parser.append_to_array(animationNames_obj_id, "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\c0000\\hkx\\{a_offset}\\{new_anim_id}.hkx", is_pointer=False)
+    xml_parser.append_to_array(animationNames_obj_id, "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\{chr_id}\\hkx\\{a_offset}\\{a_offset}_{new_anim_id}.hkx", is_pointer=False)
     new_animationInternalId = xml_parser.find_array_count(animationNames_obj_id, "animationNames") - 1
 
     #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
@@ -408,6 +412,7 @@ def run_parser():
         "new_cmsg_pointer_id": new_cmsg_pointer_id,
         "new_stateinfo_pointer_id": new_stateinfo_pointer_id,
         "new_clipgen_name": new_clipgen_name,
+        "new_animationName": new_animationName,
         "new_cmsg_name": new_cmsg_name,
         "new_stateinfo_name": new_stateinfo_name,
         "new_event_name": new_event_name,

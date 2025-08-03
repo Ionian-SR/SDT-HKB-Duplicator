@@ -1,5 +1,6 @@
 
 from lxml import etree
+import re
 
 class XMLParser:
     def __init__(self, xml_file):
@@ -61,16 +62,19 @@ class XMLParser:
 
                     # Handle XML Element directly
                     if isinstance(new_element, etree._Element):
+                        new_element.tail = "\n    " 
                         # Directly append the new XML node
                         array.append(new_element)
 
                     elif is_pointer:
                         # Append as <pointer>
-                        etree.SubElement(array, "pointer", id=str(new_element))
+                        el = etree.SubElement(array, "pointer", id=str(new_element))
+                        el.tail = "\n       "
 
                     else:
                         # Append as <string>
-                        etree.SubElement(array, "string", value=str(new_element))
+                        el = etree.SubElement(array, "string", value=str(new_element))
+                        el.tail = "\n       "
 
                     # Update the count attribute
                     new_count = current_count + 1
@@ -120,6 +124,17 @@ class XMLParser:
         # Return the last child element
         last_element = array[-1]
         return last_element
+
+
+    def get_chr_id(self, xml_bytes):
+        """
+        Extracts cXXXX (e.g., c0000, c1234, etc.) from XML bytes representing animation path.
+        """
+        text = xml_bytes.decode("utf-8")  # Convert bytes → string
+        match = re.search(r'Model\\chr\\(c\d{4})\\', text)
+        if match:
+            return match.group(1)
+        return None
 
     def get_largest_obj(self):
         last_num = -1
@@ -357,6 +372,7 @@ class XMLParser:
         new_stateinfo_pointer_id = config.get("new_stateinfo_pointer_id")
 
         new_clipgen_name = config.get("new_clipgen_name")
+        new_animationName = config.get("new_animationName")
         new_cmsg_name = config.get("new_cmsg_name")
         new_stateinfo_name = config.get("new_stateinfo_name")
         new_event_name = config.get("new_event_name")
@@ -423,7 +439,7 @@ class XMLParser:
                 if field_name == "name":
                     value = new_name
                 elif field_name == "animationName":
-                    value = new_clipgen_name
+                    value = new_animationName
                 else:
                     value = field_value
 
