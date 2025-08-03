@@ -235,33 +235,35 @@ def to_hkb_state(text):
     s2 = re.sub(r'(\D)(\d)', r'\1_\2', s1)
     return s2.upper()
 
-def get_id_from_file(event_file, search_name):
+def entry_exists_in_file(event_file, search_name):
+    """
+    Checks if the given search_name exists in the event file.
+
+    Args:
+        event_file (str): Path to the file containing entries.
+        search_name (str): The name to search for (e.g., 'a000_000004.hkx_WC').
+
+    Returns:
+        bool: True if found, False otherwise.
+    """
     # Step 1: Detect encoding
     try:
         with open(event_file, 'r', encoding='utf-8-sig') as f:
             lines = f.readlines()
-        encoding_used = 'utf-8-sig'
     except UnicodeDecodeError:
         with open(event_file, 'r', encoding='cp932') as f:
             lines = f.readlines()
-        encoding_used = 'cp932'
 
     # Step 2: Search for the event name
     for line in lines:
         if '=' in line:
             parts = line.split('=')
-            if len(parts) != 2:
-                continue
-            try:
-                event_id = int(parts[0].strip())
+            if len(parts) == 2:
                 event_name = parts[1].strip().strip('"')
                 if event_name == search_name:
-                    return event_id
-            except ValueError:
-                continue
+                    return True
 
-    # Step 3: Not found
-    return None
+    return False
 
 def seperate_id_offset(text):
     if '_' not in text:
@@ -278,8 +280,6 @@ def seperate_id_offset(text):
             return part1, part2
             #entry_a_offset = part1
             #entry_anim_id = part2
-
-
 
 def run_parser():
     global xml_file_path
@@ -367,8 +367,11 @@ def run_parser():
     if is_register_new_event == True:
         #   Append txt files
         if modify_hks:
-            append_to_eventnameid(event_txt_path, new_event_name)
-            append_to_statenameid(state_txt_path, new_stateinfo_name)
+            generate_new_event = entry_exists_in_file(event_txt_path, new_event_name)
+            print('Generate new event in txt files?', generate_new_event)
+            if generate_new_event == False:
+                append_to_eventnameid(event_txt_path, new_event_name)
+                append_to_statenameid(state_txt_path, new_stateinfo_name)
             
             #   Reformat g_paramHkbState in cmsg
             if edit_cmsg_hks_var.get():
@@ -476,22 +479,22 @@ root.title("SDT HKB Duplicator")
 tk.Label(root, text='Type in Clipgen "name" to duplicate (Example: a050_300040, a000_013800_hkx_AutoSet_00)').grid(row=0, column=0, sticky="e")
 entry_select_name = tk.Entry(root)
 entry_select_name.grid(row=0, column=1)
-entry_select_name.insert(0, "a050_300040")
+entry_select_name.insert(0, "a000_013800_hkx_AutoSet_00")
 
 tk.Label(root, text='New Clipgen "name" (Example: a050_300040, a000_013800_hkx_AutoSet_00)').grid(row=1, column=0, sticky="e")
 entry_new_name = tk.Entry(root)
 entry_new_name.grid(row=1, column=1)
-entry_new_name.insert(0, "a050_300050")
+entry_new_name.insert(0, "a000_013810_hkx_AutoSet_00")
 
 tk.Label(root, text='New Clipgen "animationName" (Example: a050_300050, a000_013800)').grid(row=2, column=0, sticky="e")
 entry_new_animationName = tk.Entry(root)
 entry_new_animationName.grid(row=2, column=1)
-entry_new_animationName.insert(0, "a050_300050")
+entry_new_animationName.insert(0, "a000_013810")
 
 tk.Label(root, text='New Stateinfo "name" (Example: GroundAttackCombo6, ThrowDef13800)').grid(row=3, column=0, sticky="e")
 entry_new_stateinfo_name = tk.Entry(root)
 entry_new_stateinfo_name.grid(row=3, column=1)
-entry_new_stateinfo_name.insert(0, "GroundAttackCombo6")
+entry_new_stateinfo_name.insert(0, "ThrowDef13810")
 
 edit_cmsg_hks_var = tk.BooleanVar(value=False)
 
