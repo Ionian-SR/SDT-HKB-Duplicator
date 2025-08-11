@@ -346,7 +346,7 @@ def run_parser():
         #   Append txt files
         if modify_hks:
             generate_new_event = entry_exists_in_file(event_txt_path, new_event_name)
-            print('Generate new event in txt files?', generate_new_event)
+            print('Is event in txt files already?', generate_new_event)
             if generate_new_event == False:
                 append_to_eventnameid(event_txt_path, new_event_name)
                 append_to_statenameid(state_txt_path, new_stateinfo_name)
