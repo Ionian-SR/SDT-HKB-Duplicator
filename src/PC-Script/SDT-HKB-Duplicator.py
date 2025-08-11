@@ -54,22 +54,6 @@ def backup_project_files(files_dict, project_name="project", backup_dir="backups
 
     print(f"Backup complete: {zip_path}")
 
-def select_only_xml_file():
-    global xml_file_path
-    global hks_file_path
-    global event_txt_path
-    global state_txt_path
-    file_path = filedialog.askopenfilename(
-        title="Select XML File",
-        filetypes=[("XML files", "*.xml")]
-    )
-    hks_file_path = None
-    event_txt_path = None
-    state_txt_path = None
-    if file_path:
-        xml_file_path = file_path
-        xml_label.config(text=f"Selected: {file_path}")
-
 def append_to_eventnameid(event_file, new_event_name):
     # Step 1: Detect encoding
     try:
@@ -271,15 +255,11 @@ def seperate_id_offset(text):
     else:
         parts = text.split("_", 1) 
 
-        # if len(parts) != 2:
-        #     print("Error: String does not contain exactly two parts.")
         if not parts[0].startswith('a'):
             print("Error: First part does not start with 'a'.")
         else:
             part1, part2 = parts
             return part1, part2
-            #entry_a_offset = part1
-            #entry_anim_id = part2
 
 def run_parser():
     global xml_file_path
@@ -290,7 +270,6 @@ def run_parser():
 
     #   Set up XMLParser with XML file path
     xml_parser = XMLParser(xml_file_path)
-
     #   Seperate text from input
     a_offset, new_anim_id = seperate_id_offset(entry_new_animationName.get())
     new_animationName = entry_new_animationName.get()
@@ -301,7 +280,7 @@ def run_parser():
     new_clipgen_name = f"{entry_new_name.get()}"
     new_event_name = f"W_{new_stateinfo_name}"
     select_name = entry_select_name.get()
-    #   Create variables
+    #   Create new IDs
     large_obj_id = xml_parser.get_largest_obj()
     new_clipgen_pointer_id = f"object{large_obj_id + 1}"
     new_cmsg_pointer_id = f"object{large_obj_id + 2}"
@@ -310,7 +289,9 @@ def run_parser():
     new_userData = xml_parser.get_largest_userData() + 1
     eventInfo_entry = xml_parser.generate_event_info_entry()
 
-    is_register_new_event = True
+    is_register_new_event = True    #   default to true
+    modify_hks = False              #   default to False
+
     #   Check if desired object already exists
     #   If NOT, stop
     desired_obj_data = xml_parser.find_object_by_name(new_clipgen_name)
@@ -330,9 +311,6 @@ def run_parser():
     if selected_new_cmsg_obj_data is not None and selected_new_cmsg_obj_data.get('fields', {}).get('name') == new_cmsg_name:
         is_register_new_event = False
         print("\033[93mExisting CMSG found. Appending to CMSG array.\033[0m")
-
-    
-    modify_hks = False  # default to False
 
     if hks_file_path and os.path.isfile(hks_file_path):
         hks_parser = HKSParser(hks_file_path)
@@ -472,44 +450,47 @@ def run_parser():
     xml_parser.save_xml(xml_file_path)
     update_xml_header(xml_file_path)
         
+import tkinter as tk
+
 # ----- UI Setup -----
 root = tk.Tk()
 root.title("SDT HKB Duplicator")
+root.geometry("600x300")
+# Make column 1 (entries) expand when resizing
+root.columnconfigure(1, weight=1)
 
-tk.Label(root, text='Type in Clipgen "name" to duplicate (Example: a050_300040, a000_013800_hkx_AutoSet_00)').grid(row=0, column=0, sticky="e")
-entry_select_name = tk.Entry(root)
-entry_select_name.grid(row=0, column=1)
-entry_select_name.insert(0, "a000_013800_hkx_AutoSet_00")
+# Field labels and default values
+fields = [
+    ('Type in Clipgen "name" to duplicate', "a000_013800_hkx_AutoSet_00"),
+    ('New Clipgen "name"', "a000_013810_hkx_AutoSet_00"),
+    ('New Clipgen "animationName"', "a000_013810"),
+    ('New Stateinfo "name"', "ThrowDef13810")
+]
 
-tk.Label(root, text='New Clipgen "name" (Example: a050_300040, a000_013800_hkx_AutoSet_00)').grid(row=1, column=0, sticky="e")
-entry_new_name = tk.Entry(root)
-entry_new_name.grid(row=1, column=1)
-entry_new_name.insert(0, "a000_013810_hkx_AutoSet_00")
+# Store entry widgets in case you need them later
+entries = {}
 
-tk.Label(root, text='New Clipgen "animationName" (Example: a050_300050, a000_013800)').grid(row=2, column=0, sticky="e")
-entry_new_animationName = tk.Entry(root)
-entry_new_animationName.grid(row=2, column=1)
-entry_new_animationName.insert(0, "a000_013810")
+for i, (label_text, default) in enumerate(fields):
+    tk.Label(root, text=label_text, anchor="w")\
+        .grid(row=i, column=0, sticky="w", padx=10, pady=5)
+    
+    entry = tk.Entry(root)
+    entry.grid(row=i, column=1, sticky="ew", padx=10, pady=5)
+    entry.insert(0, default)
+    entries[label_text] = entry
 
-tk.Label(root, text='New Stateinfo "name" (Example: GroundAttackCombo6, ThrowDef13800)').grid(row=3, column=0, sticky="e")
-entry_new_stateinfo_name = tk.Entry(root)
-entry_new_stateinfo_name.grid(row=3, column=1)
-entry_new_stateinfo_name.insert(0, "ThrowDef13810")
-
+# Checkbox
 edit_cmsg_hks_var = tk.BooleanVar(value=False)
-
 check_edit_cmsg_hks = tk.Checkbutton(
     root,
     text="Edit cmsg_hks file? Only check this for c0000.xml edits",
     variable=edit_cmsg_hks_var
 )
-check_edit_cmsg_hks.grid(row=4, columnspan=2, pady=5)
+check_edit_cmsg_hks.grid(row=len(fields), column=0, columnspan=2, padx=10, pady=10)
 
+# Project buttons frame
 project_buttons_frame = tk.Frame(root)
-project_buttons_frame.grid(row=7, columnspan=2)
-
-xml_label = tk.Label(root, text="No file selected")
-
+project_buttons_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=5)
 
 btn_create_project = tk.Button(project_buttons_frame, text="Create Project", command=lambda: create_project())
 btn_create_project.grid(row=0, column=0, padx=5)
@@ -517,13 +498,12 @@ btn_create_project.grid(row=0, column=0, padx=5)
 btn_open_project = tk.Button(project_buttons_frame, text="Open Project", command=lambda: open_project())
 btn_open_project.grid(row=0, column=1, padx=5)
 
-#btn_open_only_xml = tk.Button(project_buttons_frame, text="Open only XML", command=lambda: select_only_xml_file())
-#btn_open_only_xml.grid(row=0, column=2, padx=5)
+# Run button
+run_button = tk.Button(root, text="Run", command=lambda: run_parser(), width=15)
+run_button.grid(row=len(fields)+2, column=0, columnspan=2, pady=10)
 
-run_button = tk.Button(root, text="Run", command=run_parser)
-run_button.grid(row=8, columnspan=3, pady=10)
-
+# Result label
 result_label = tk.Label(root, text="")
-result_label.grid(row=9, columnspan=2)
+result_label.grid(row=len(fields)+3, column=0, columnspan=2, pady=5)
 
 root.mainloop()

@@ -35,4 +35,4 @@ cp template/eventnameid.txt npc_project/eventnameid.txt
 cp template/statenameid.txt npc_project/statenameid.txt
 
 echo -e "${GREEN}Running python script${RESET}"
-python3 SDT-PC-BEH-Script.py
+python3 SDT-HKB-Duplicator.py
