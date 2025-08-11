@@ -456,41 +456,42 @@ import tkinter as tk
 root = tk.Tk()
 root.title("SDT HKB Duplicator")
 root.geometry("600x300")
-# Make column 1 (entries) expand when resizing
 root.columnconfigure(1, weight=1)
 
-# Field labels and default values
-fields = [
-    ('Type in Clipgen "name" to duplicate', "a000_013800_hkx_AutoSet_00"),
-    ('New Clipgen "name"', "a000_013810_hkx_AutoSet_00"),
-    ('New Clipgen "animationName"', "a000_013810"),
-    ('New Stateinfo "name"', "ThrowDef13810")
-]
+tk.Label(root, text='Type in Clipgen "name" to duplicate').grid(row=0, column=0, sticky="w", padx=10, pady=5)
+entry_select_name = tk.Entry(root)
+entry_select_name.grid(row=0, column=1, sticky="ew", padx=10, pady=5)
+entry_select_name.insert(0, "a000_013800_hkx_AutoSet_00")
 
-# Store entry widgets in case you need them later
-entries = {}
+tk.Label(root, text='New Clipgen "name"').grid(row=1, column=0, sticky="w", padx=10, pady=5)
+entry_new_name = tk.Entry(root)
+entry_new_name.grid(row=1, column=1, sticky="ew", padx=10, pady=5)
+entry_new_name.insert(0, "a000_013810_hkx_AutoSet_00")
 
-for i, (label_text, default) in enumerate(fields):
-    tk.Label(root, text=label_text, anchor="w")\
-        .grid(row=i, column=0, sticky="w", padx=10, pady=5)
-    
-    entry = tk.Entry(root)
-    entry.grid(row=i, column=1, sticky="ew", padx=10, pady=5)
-    entry.insert(0, default)
-    entries[label_text] = entry
+tk.Label(root, text='New Clipgen "animationName"').grid(row=2, column=0, sticky="w", padx=10, pady=5)
+entry_new_animationName = tk.Entry(root)
+entry_new_animationName.grid(row=2, column=1, sticky="ew", padx=10, pady=5)
+entry_new_animationName.insert(0, "a000_013810")
 
-# Checkbox
+tk.Label(root, text='New Stateinfo "name"').grid(row=3, column=0, sticky="w", padx=10, pady=5)
+entry_new_stateinfo_name = tk.Entry(root)
+entry_new_stateinfo_name.grid(row=3, column=1, sticky="ew", padx=10, pady=5)
+entry_new_stateinfo_name.insert(0, "ThrowDef13810")
+
 edit_cmsg_hks_var = tk.BooleanVar(value=False)
+
 check_edit_cmsg_hks = tk.Checkbutton(
     root,
     text="Edit cmsg_hks file? Only check this for c0000.xml edits",
     variable=edit_cmsg_hks_var
 )
-check_edit_cmsg_hks.grid(row=len(fields), column=0, columnspan=2, padx=10, pady=10)
+check_edit_cmsg_hks.grid(row=4, columnspan=2, pady=5)
 
-# Project buttons frame
 project_buttons_frame = tk.Frame(root)
-project_buttons_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=5)
+project_buttons_frame.grid(row=7, columnspan=2)
+
+xml_label = tk.Label(root, text="No file selected")
+
 
 btn_create_project = tk.Button(project_buttons_frame, text="Create Project", command=lambda: create_project())
 btn_create_project.grid(row=0, column=0, padx=5)
@@ -498,12 +499,13 @@ btn_create_project.grid(row=0, column=0, padx=5)
 btn_open_project = tk.Button(project_buttons_frame, text="Open Project", command=lambda: open_project())
 btn_open_project.grid(row=0, column=1, padx=5)
 
-# Run button
-run_button = tk.Button(root, text="Run", command=lambda: run_parser(), width=15)
-run_button.grid(row=len(fields)+2, column=0, columnspan=2, pady=10)
+#btn_open_only_xml = tk.Button(project_buttons_frame, text="Open only XML", command=lambda: select_only_xml_file())
+#btn_open_only_xml.grid(row=0, column=2, padx=5)
 
-# Result label
+run_button = tk.Button(root, text="Run", command=run_parser)
+run_button.grid(row=8, columnspan=3, pady=10)
+
 result_label = tk.Label(root, text="")
-result_label.grid(row=len(fields)+3, column=0, columnspan=2, pady=5)
+result_label.grid(row=9, columnspan=2)
 
 root.mainloop()
