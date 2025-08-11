@@ -456,6 +456,7 @@ import tkinter as tk
 root = tk.Tk()
 root.title("SDT HKB Duplicator")
 root.geometry("600x300")
+root.iconbitmap('favicon.ico')
 root.columnconfigure(1, weight=1)
 
 tk.Label(root, text='Type in Clipgen "name" to duplicate').grid(row=0, column=0, sticky="w", padx=10, pady=5)
