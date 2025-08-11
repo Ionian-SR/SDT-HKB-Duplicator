@@ -1,9 +1,0 @@
-{
-  "project_name": "test",
-  "files": {
-    "behavior_xml": "/root/SDT-NPC-Behbnd-Script/src/PC-Script/project/c0000.xml",
-    "cmsg_script": "/root/SDT-NPC-Behbnd-Script/src/PC-Script/project/c0000_cmsg.hks",
-    "event_id_map": "/root/SDT-NPC-Behbnd-Script/src/PC-Script/project/eventnameid.txt",
-    "state_id_map": "/root/SDT-NPC-Behbnd-Script/src/PC-Script/project/statenameid.txt"
-  }
-}
