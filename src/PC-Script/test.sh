@@ -21,6 +21,7 @@ rm project/statenameid.txt
 rm project/c0000_cmsg.hks
 
 rm npc_project/c9997.xml
+rm npc_project/c9998.xml
 rm npc_project/eventnameid.txt
 rm npc_project/statenameid.txt
 
@@ -31,6 +32,7 @@ cp template/statenameid.txt project/statenameid.txt
 cp template/c0000_cmsg.hks project/c0000_cmsg.hks
 
 cp template/c9997.xml npc_project/c9997.xml
+cp template/c9997.xml npc_project/c9998.xml
 cp template/eventnameid.txt npc_project/eventnameid.txt
 cp template/statenameid.txt npc_project/statenameid.txt
 
