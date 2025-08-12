@@ -7,6 +7,6 @@ src/dist
 /build
 src/npc_project
 src/project
-src/template
+#src/template
 __pycache__/
 *Zone.Identifier
