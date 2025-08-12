@@ -1,7 +1,12 @@
-*.xml
+#*.xml
 venv
 *.spec
 /build
-/dist
-/src/build
-/src/dist
+src/backups
+src/dist
+/build
+src/npc_project
+src/project
+#src/template
+__pycache__/
+*Zone.Identifier
