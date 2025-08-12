@@ -2,11 +2,11 @@
 venv
 *.spec
 /build
-/backups
-/dist
+src/backups
+src/dist
 /build
-/npc_project
-/project
-/template
+src/npc_project
+src/project
+src/template
 __pycache__/
 *Zone.Identifier
