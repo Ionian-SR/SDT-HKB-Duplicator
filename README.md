@@ -1,4 +1,4 @@
-# SDT NPC Duplicator
+# SDT HKB Duplicator
 This is a tool that automates a majority of the process to add new havok behavior entries in c9997 or c0000.xml files. It also edits the .txt files and hks files associated for adding new events.
 
 ## Before using this tool
