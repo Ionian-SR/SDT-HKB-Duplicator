@@ -2,8 +2,11 @@
 venv
 *.spec
 /build
+/backups
 /dist
-/src/build
-/src/dist
+/build
+/npc_project
+/project
+/template
 __pycache__/
-src\PC-Script\backups
+*Zone.Identifier
