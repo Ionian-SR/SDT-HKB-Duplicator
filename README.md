@@ -1,9 +1,34 @@
-# SDT NPC BEH Script 
-This is a python tool that automates the process of adding new 3XXX object entries into a c9997.xml file for an NPC behavior BND for Sekiro: Shadows Die Twice.
-This will make it so that if an enemy does not have a certain animation such as 3010, adding it via this tool will allow the game to call it for event and AI scripts.
+# SDT NPC Duplicator
+This is a tool that automates a majority of the process to add new havok behavior entries in c9997 or c0000.xml files. It also edits the .txt files and hks files associated for adding new events.
 
-## USAGE:
-- Download and run the SDT-NPC-BEH-Script.exe from the Github release page, and follow the instructions.
+# Usage
+1. Type in the ClipGen "name" you would want to duplicate. This is usually the animation ID found in DS Animation Studio, but it is not always the case. If you want a prosthetic attack, choose an animation ID that is considered a prosthetic attack. Same with Throws, Mid-air, and other special states. 
+  - *Examples*
+  - a000_013800_hkx_AutoSet_00
+    - This is what the ClipGen name looks like for a Mikiri animation of an NPC. NPC ClipGen names often have additional text after the ID.
+  - a050_300040
+    - This is what the ClipGen name looks like for a Ground Attack of the PC. 
+2. Type in the new ClipGen "name" you would like. Ideally, you would just increment the original ID in some way, but you can put whatever you want. 
+  - *Examples*
+  - a000_013810_hkx_AutoSet_00
+  - a050_300050
+3. Type in the ClipGen "animationName". This will be mostly likely identical to ClipGen name, but it can differ in some cases.
+  - *Examples*
+  - a000_013810
+  - a050_300050
+4. Type in Stateinfo "name". This entry will determine the name of the event, state, CMSG, and stateinfo components.
+  - *Examples*
+  - ThrowDef13810
+  - GroundAttackCombo5
+
+**IMPORTANT** 
+- For creating new aXXX variations of a particular event, follow these instructions:
+- For Stateinfo name, put in the *exact* existing Stateinfo name. If you do not do this, the tool will create an entire new state, which will not be a variation.
+  - *Example*
+  - GroundSpecialAttackCombo1
+- For ClipGen name, put in the *exact* existing ClipGen name, but change the aXXX offset.
+  - *Example*
+  - a050_300040 &rarr; a051_300040
 
 ## IMPORTANT NOTES:
 - This tool will check if an animation already exists.
