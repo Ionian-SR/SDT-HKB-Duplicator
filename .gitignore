@@ -1,9 +1,9 @@
 #*.xml
-venv
+.venv
 *.spec
 src/build
 src/backups
-src/dist
+*dist
 /build
 src/npc_project
 src/project
