@@ -1,511 +1,511 @@
-import xml.etree.ElementTree as ET
-from xml_parser import XMLParser
-from hks_parser import HKSParser
-import tkinter as tk
-#from tkinter import ttk
-from tkinter import filedialog
-from tkinter.simpledialog import askstring
+"""SDT HKB Duplicator - desktop UI."""
+
 import json
-from tkinter import messagebox
 import os
-import zipfile
-import hashlib
-from datetime import datetime
 import re
-
-xml_file_path = None
-hks_file_path = None
-event_txt_path = None
-state_txt_path = None
-
-def file_hash(source):
-    """Compute SHA-256 hash from a file path or a file-like object"""
-    h = hashlib.sha256()
-
-    if isinstance(source, (str, os.PathLike)):
-        with open(source, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), b''):
-                h.update(chunk)
-    else:
-        for chunk in iter(lambda: source.read(8192), b''):
-            h.update(chunk)
-        source.seek(0)  # Reset stream position if needed later
-
-    return h.hexdigest()
-
-def backup_project_files(files_dict, project_name="project", backup_dir="backups"):
-    os.makedirs(backup_dir, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    zip_name = f"{project_name}_backup_{timestamp}.zip"
-    zip_path = os.path.join(backup_dir, zip_name)
-
-    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
-        for label, path in files_dict.items():
-            if not path:
-                print(f"[WARNING] Skipping '{label}' - path is None or empty.")
-                continue
-            if os.path.exists(path):
-                arcname = os.path.basename(path)
-                z.write(path, arcname=arcname)
-                #print(f"Added {arcname} to {zip_name}")
-            else:
-                print(f"Skipped missing file: {path}")
-
-    print(f"Backup complete: {zip_path}")
-
-def append_to_eventnameid(event_file, new_event_name):
-    # Step 1: Detect encoding
-    try:
-        with open(event_file, 'r', encoding='utf-8-sig') as f:
-            lines = f.readlines()
-        encoding_used = 'utf-8-sig'
-    except UnicodeDecodeError:
-        with open(event_file, 'r', encoding='cp932') as f:
-            lines = f.readlines()
-        encoding_used = 'cp932'
-
-    # Step 2: Get last ID
-    last_id = -1
-    for line in lines:
-        if '=' in line:
-            try:
-                last_id = int(line.split('=')[0].strip())
-            except ValueError:
-                continue
-
-    if last_id == -1:
-        print("No valid entries found.")
-        return
-
-    new_id = last_id + 1
-
-    # Step 3: Append
-    with open(event_file, 'a', encoding=encoding_used) as f:
-        f.write(f'{new_id} = "{new_event_name}"\n')
-
-    print(f"Appended: {new_id} = \"{new_event_name}\"")
-
-def append_to_statenameid(state_file, new_state_name):
-    # Step 1: Detect encoding
-    try:
-        with open(state_file, 'r', encoding='utf-8-sig') as f:
-            lines = f.readlines()
-        encoding_used = 'utf-8-sig'
-    except UnicodeDecodeError:
-        with open(state_file, 'r', encoding='cp932') as f:
-            lines = f.readlines()
-        encoding_used = 'cp932'
-
-    # Step 2: Get the last ID
-    last_id = -1
-    for line in lines:
-        if '=' in line:
-            try:
-                last_id = int(line.split('=')[0].strip())
-            except ValueError:
-                continue
-
-    if last_id == -1:
-        print("No valid entries found in state file.")
-        return
-
-    new_id = last_id + 1
-
-    # Step 3: Append the new line
-    with open(state_file, 'a', encoding=encoding_used) as f:
-        f.write(f'\n{new_id} = "{new_state_name}"')
-
-    print(f"Appended to state: {new_id} = \"{new_state_name}\"")
-
-def update_xml_header(file_path):
-    """
-    Updates the XML declaration header to the specified format.
-
-    Args:
-        file_path (str): The path to the XML file to be modified.
-    """
-    with open(file_path, "r", encoding="utf-8") as file:
-        content = file.read()
-
-    # Replace the header
-    new_content = content.replace(
-        "<?xml version='1.0' encoding='UTF-8'?>",
-        '<?xml version="1.0" encoding="utf-8"?>'
-    )
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(new_content)
-
-    print(f"Updated header in '{file_path}'")
-
-def create_project():
-    global xml_file_path
-    project_name = askstring("Project Name", "Enter a name for your project:")
-    if not project_name:
-        project_name = "SDT-BEH-Project"
-        #messagebox.showwarning("Canceled", "Project creation canceled — no name provided.")
-        return
-    xml_path = filedialog.askopenfilename(title="Select XML File", filetypes=[("XML files", "*.xml")])
-    if not xml_path:
-        return
-    hks_path = filedialog.askopenfilename(title="Select HKS File", filetypes=[("Lua/HKS files", "*.hks *.lua")])
-    if not hks_path:
-        return
-    event_txt = filedialog.askopenfilename(title="Select eventnameid.txt", filetypes=[("Text files", "*.txt")])
-    if not event_txt:
-        return
-    state_txt = filedialog.askopenfilename(title="Select statenameid.txt", filetypes=[("Text files", "*.txt")])
-    if not state_txt:
-        return
-
-    project_data = {
-        "project_name": project_name,
-        "files": {
-            "behavior_xml": xml_path,
-            "cmsg_script": hks_path,
-            "event_id_map": event_txt,
-            "state_id_map": state_txt
-        }
-    }
-
-    save_path = filedialog.asksaveasfilename(
-        defaultextension=".json",
-        filetypes=[("JSON files", "*.json")],
-        title="Save Project File",
-        initialfile=f"{project_name}.json"
-    )
-
-    if save_path:
-        with open(save_path, 'w', encoding='utf-8') as f:
-            json.dump(project_data, f, indent=2)
-        messagebox.showinfo("Project Saved", f"Saved to {save_path}")
-        json_path = save_path
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            xml_file_path = data["files"]["behavior_xml"]
-            xml_label.config(text=f"Loaded from project: {xml_file_path}")
-            messagebox.showinfo("Project Loaded", f"Loaded: {data['project_name']}")
-    else:
-        messagebox.showwarning("Canceled", "Project not saved.")
-
-def open_project():
-    global xml_file_path, hks_file_path, event_txt_path, state_txt_path
-    json_path = filedialog.askopenfilename(title="Open Project File", filetypes=[("JSON files", "*.json")])
-    if not json_path:
-        return
-
-    try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        # Extract all file paths
-        xml_file_path = data["files"]["behavior_xml"]
-        hks_file_path = data["files"]["cmsg_script"]
-        event_txt_path = data["files"]["event_id_map"]
-        state_txt_path = data["files"]["state_id_map"]
-
-        # Update UI label to reflect loaded XML
-        xml_label.config(text=f"Loaded from project: {xml_file_path}")
-        messagebox.showinfo("Project Loaded", f"Loaded: {data['project_name']}")
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to load project:\n{e}")
-
-def to_hkb_state(text):
-    if not isinstance(text, str):
-        print("⚠️ to_hkb_state received non-string input:", type(text), text)
-        return "INVALID_INPUT"
-    s1 = re.sub(r'(?<!^)(?=[A-Z])', '_', text)
-    s2 = re.sub(r'(\D)(\d)', r'\1_\2', s1)
-    return s2.upper()
-
-def entry_exists_in_file(event_file, search_name):
-    """
-    Checks if the given search_name exists in the event file.
-
-    Args:
-        event_file (str): Path to the file containing entries.
-        search_name (str): The name to search for (e.g., 'a000_000004.hkx_WC').
-
-    Returns:
-        bool: True if found, False otherwise.
-    """
-    # Step 1: Detect encoding
-    try:
-        with open(event_file, 'r', encoding='utf-8-sig') as f:
-            lines = f.readlines()
-    except UnicodeDecodeError:
-        with open(event_file, 'r', encoding='cp932') as f:
-            lines = f.readlines()
-
-    # Step 2: Search for the event name
-    for line in lines:
-        if '=' in line:
-            parts = line.split('=')
-            if len(parts) == 2:
-                event_name = parts[1].strip().strip('"')
-                if event_name == search_name:
-                    return True
-
-    return False
-
-def seperate_id_offset(text):
-    if '_' not in text:
-        print("Error: Underscore separator not found.")
-    else:
-        parts = text.split("_", 1) 
-
-        if not parts[0].startswith('a'):
-            print("Error: First part does not start with 'a'.")
-        else:
-            part1, part2 = parts
-            return part1, part2
-
-def run_parser():
-    global xml_file_path
-    global hks_file_path
-    if not xml_file_path:
-        result_label.config(text="No XML found. Please open a project.")
-        return
-
-    #   Set up XMLParser with XML file path
-    xml_parser = XMLParser(xml_file_path)
-    #   Seperate text from input
-    a_offset, new_anim_id = seperate_id_offset(entry_new_animationName.get())
-    new_animationName = entry_new_animationName.get()
-    new_anim_id_stripped = new_anim_id.lstrip("0")
-    #   Create new names
-    new_cmsg_name = f"{entry_new_stateinfo_name.get()}_CMSG"
-    new_stateinfo_name = f"{entry_new_stateinfo_name.get()}"
-    new_clipgen_name = f"{entry_new_name.get()}"
-    new_event_name = f"W_{new_stateinfo_name}"
-    select_name = entry_select_name.get()
-    #   Create new IDs
-    large_obj_id = xml_parser.get_largest_obj()
-    new_clipgen_pointer_id = f"object{large_obj_id + 1}"
-    new_cmsg_pointer_id = f"object{large_obj_id + 2}"
-    new_stateinfo_pointer_id = f"object{large_obj_id + 3}"
-    new_toStateId = xml_parser.get_largest_toStateId() + 1
-    new_userData = xml_parser.get_largest_userData() + 1
-    eventInfo_entry = xml_parser.generate_event_info_entry()
-
-    is_register_new_event = True    #   default to true
-    modify_hks = False              #   default to False
-
-    #   Check if desired object already exists
-    #   If NOT, stop
-    desired_obj_data = xml_parser.find_object_by_name(new_clipgen_name)
-    if desired_obj_data is not None:
-        print("\033[91mDesired object already exists. Cancelling operation.\033[0m")
-        return
-
-    #   Find selected object
-    #   If object doesn't exist, stop.
-    selected_obj_data = xml_parser.find_object_by_name(select_name)
-    selected_traced_objects = xml_parser.trace_references(selected_obj_data['id'])
-    if selected_obj_data is None:
-        return
-    
-    #   Check if selected objects' CMSG already exists. If so, do not register new events.
-    selected_new_cmsg_obj_data = xml_parser.find_object_by_name(new_cmsg_name)
-    if selected_new_cmsg_obj_data is not None and selected_new_cmsg_obj_data.get('fields', {}).get('name') == new_cmsg_name:
-        is_register_new_event = False
-        print("\033[93mExisting CMSG found. Appending to CMSG array.\033[0m")
-
-    if hks_file_path and os.path.isfile(hks_file_path):
-        hks_parser = HKSParser(hks_file_path)
-        modify_hks = True
-
-        # Backup project files
-        backup_project_files(
-            files_dict={
-                "behavior_xml": xml_file_path,
-                "cmsg_script": hks_file_path,
-                "event_id_map": event_txt_path,
-                "state_id_map": state_txt_path
-            },
-        )
-    else:
-        hks_parser = None
-
-    #   If registering a new event...
-    #   - Append txt files
-    #   - Reformat and append cmsg file
-    #   - Append to eventNames and eventInfos array in xml
-        
-    #   Find object that contains animationnames, and eventNames
-    animationNames_obj_data = xml_parser.find_object_by_field('field[@name="animationNames"]')
-    animationNames_obj_id = animationNames_obj_data['id']
-    
-    #   Find object that contains eventInfos
-    eventInfos_obj_data = xml_parser.find_object_by_field('field[@name="eventInfos"]')
-    eventInfos_obj_id = eventInfos_obj_data['id']
-
-
-    if is_register_new_event == True:
-        #   Append txt files
-        if modify_hks:
-            generate_new_event = entry_exists_in_file(event_txt_path, new_event_name)
-            print('Is event in txt files already?', generate_new_event)
-            if generate_new_event == False:
-                append_to_eventnameid(event_txt_path, new_event_name)
-                append_to_statenameid(state_txt_path, new_stateinfo_name)
-            
-            #   Reformat g_paramHkbState in cmsg
-            if edit_cmsg_hks_var.get():
-                hks_parser.reformat_g_paramHkbState()
-
-        #   Append eventNames
-        xml_parser.append_to_array(animationNames_obj_id, "eventNames", f"{new_event_name}", is_pointer=False)
-
-        #   Append eventInfos
-        xml_parser.append_to_array(eventInfos_obj_id, "eventInfos", eventInfo_entry, is_pointer=False)
-        new_eventInfos_count = xml_parser.find_array_count(eventInfos_obj_id, "eventInfos") - 1
-            
-        #   Append new stateInfo object to stateMachine object
-        xml_parser.append_to_array(selected_traced_objects[2], "states", f"{new_stateinfo_pointer_id}", is_pointer=True)
-
-        #   Collect Statemachine information
-        statemachine_object = xml_parser.find_object_by_id(selected_traced_objects[2])
-
-        #   Find wildcard pointer ID
-        wildcard_object_id = xml_parser.get_wildcard_transition(statemachine_object)
-
-        #   Find original wildcard record information
-        selected_stateinfo_obj_data = xml_parser.find_object_by_id(selected_traced_objects[1])
-        transition_pointer_id = xml_parser.find_transition_record_by_field_value(wildcard_object_id, "toStateId", selected_stateinfo_obj_data['fields']['stateId'])
-        
-        #   Generate a new transition entry and append it
-        new_entry = xml_parser.generate_transition_entry(transition_pointer_id, new_eventInfos_count, new_toStateId)
-        xml_parser.append_to_array(wildcard_object_id, "transitions", new_entry, is_pointer=False)
-
-    #   Get last entry of animationNames to get chr id
-    last_animationNames_entry = ET.tostring(xml_parser.get_last_array_element(animationNames_obj_id, "animationNames"))
-    chr_id = xml_parser.get_chr_id(last_animationNames_entry)
-    print(f"CHR ID: {chr_id}")
-
-    #   Append new animation to animationNames array. Update Count. Take new internalID.
-    xml_parser.append_to_array(animationNames_obj_id, "animationNames", f"..\\..\\..\\..\\..\\Model\\chr\\{chr_id}\\hkx\\{a_offset}\\{a_offset}_{new_anim_id}.hkx", is_pointer=False)
-    new_animationInternalId = xml_parser.find_array_count(animationNames_obj_id, "animationNames") - 1
-
-    #   PASS VARIABLES TO EXTERNAL LIBRARY XML PARSER DUPLICATE FUNCTION
-    config = {
-        "new_clipgen_pointer_id": new_clipgen_pointer_id,
-        "new_cmsg_pointer_id": new_cmsg_pointer_id,
-        "new_stateinfo_pointer_id": new_stateinfo_pointer_id,
-        "new_clipgen_name": new_clipgen_name,
-        "new_animationName": new_animationName,
-        "new_cmsg_name": new_cmsg_name,
-        "new_stateinfo_name": new_stateinfo_name,
-        "new_event_name": new_event_name,
-        "new_toStateId": new_toStateId,
-        "new_userData": new_userData,
-        "new_animationInternalId": new_animationInternalId,
-        "new_anim_id": new_anim_id_stripped,
-    }
-
-    #   If there is a clipGen object...
-    if selected_obj_data:
-        #   Duplicate clipGen
-        xml_parser.duplicate_object(selected_obj_data, new_clipgen_name, config)
-        #   If CMSG already exists, append to it.
-        if is_register_new_event == False:
-            xml_parser.append_to_array(selected_new_cmsg_obj_data.get('id'), "generators", new_clipgen_pointer_id, is_pointer=True)
-        else:
-            #   If there is a cmsg object...
-            if selected_traced_objects[0] is not None:
-                #   Find and duplicate cmsg
-                cmsg_obj_data = xml_parser.find_object_by_id(selected_traced_objects[0])
-                xml_parser.duplicate_object(cmsg_obj_data, new_cmsg_name, config)
-                
-                #   If there is a stateInfo object...
-                if selected_traced_objects[1] is not None:
-                    #   Find and duplicate stateinfo
-                    stateinfo_obj_data = xml_parser.find_object_by_id(selected_traced_objects[1])
-                    xml_parser.duplicate_object(stateinfo_obj_data, new_stateinfo_name, config)
-                    
-                    if modify_hks:
-                        #   MODIFY CMSG HKS
-                        #   Convert new stateinfo name to HKS_STATE
-                        new_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(new_stateinfo_name)
-                        #   Find largest number and add 1 to it
-                        new_max_number = hks_parser.get_max_number() + 1
-                        #   Append new defintion above g_param
-                        hks_parser.append_def(new_hks_stateinfo_name + " = " + str(new_max_number))
-                        
-                        #   Find OG HKB_STATE
-                        selected_hks_stateinfo_name = "HKB_STATE_" + to_hkb_state(stateinfo_obj_data['fields']['name'])
-                        #   Find hkb_state inside g_param array
-                        selected_hks_stateinfo_name_line = hks_parser.find_hkb_state(selected_hks_stateinfo_name)
-                        #   If there is an entry in the array, add
-                        if selected_hks_stateinfo_name_line is not None:
-                            #   Find hkb_state inside g_param array
-                            modified_line = re.sub(r"\[.*?\]", f"[{new_hks_stateinfo_name}]", selected_hks_stateinfo_name_line)
-                            #   Append to g_param array
-                            hks_parser.append_g_param(modified_line)
-                        #   Append function
-                        hks_parser.append_functions(new_stateinfo_name, new_hks_stateinfo_name)
-                                        
-            
-    xml_parser.save_xml(xml_file_path)
-    update_xml_header(xml_file_path)
-        
+import sys
 import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
-# ----- UI Setup -----
-root = tk.Tk()
-root.title("SDT HKB Duplicator")
-root.geometry("600x300")
-root.columnconfigure(1, weight=1)
+from project import BRANCH, STATE, VARIATION, Project, Request, friendly_error
 
-tk.Label(root, text='Type in Clipgen "name" to duplicate').grid(row=0, column=0, sticky="w", padx=10, pady=5)
-entry_select_name = tk.Entry(root)
-entry_select_name.grid(row=0, column=1, sticky="ew", padx=10, pady=5)
-entry_select_name.insert(0, "a000_013800_hkx_AutoSet_00")
+APP_TITLE = "SDT HKB Duplicator"
+SETTINGS_PATH = os.path.join(os.path.expanduser("~"), ".sdt_hkb_duplicator.json")
 
-tk.Label(root, text='New Clipgen "name"').grid(row=1, column=0, sticky="w", padx=10, pady=5)
-entry_new_name = tk.Entry(root)
-entry_new_name.grid(row=1, column=1, sticky="ew", padx=10, pady=5)
-entry_new_name.insert(0, "a000_013810_hkx_AutoSet_00")
-
-tk.Label(root, text='New Clipgen "animationName"').grid(row=2, column=0, sticky="w", padx=10, pady=5)
-entry_new_animationName = tk.Entry(root)
-entry_new_animationName.grid(row=2, column=1, sticky="ew", padx=10, pady=5)
-entry_new_animationName.insert(0, "a000_013810")
-
-tk.Label(root, text='New Stateinfo "name"').grid(row=3, column=0, sticky="w", padx=10, pady=5)
-entry_new_stateinfo_name = tk.Entry(root)
-entry_new_stateinfo_name.grid(row=3, column=1, sticky="ew", padx=10, pady=5)
-entry_new_stateinfo_name.insert(0, "ThrowDef13810")
-
-edit_cmsg_hks_var = tk.BooleanVar(value=False)
-
-check_edit_cmsg_hks = tk.Checkbutton(
-    root,
-    text="Edit cmsg_hks file? Only check this for c0000.xml edits",
-    variable=edit_cmsg_hks_var
-)
-check_edit_cmsg_hks.grid(row=4, columnspan=2, pady=5)
-
-project_buttons_frame = tk.Frame(root)
-project_buttons_frame.grid(row=7, columnspan=2)
-
-xml_label = tk.Label(root, text="No file selected")
+MODES = {
+    VARIATION: (
+        "Add a variation",
+        "Adds the new clip to the same CMSG, next to the original. Use a different aXXX offset "
+        "(e.g. a105_316020 → a106_316020) so the game can tell them apart.",
+    ),
+    BRANCH: (
+        "Add a branch to the selector",
+        "Adds a new CMSG + clip next to the existing ones in the selector above it "
+        "(e.g. HangMoveB next to HangMoveL/HangMoveR). No new state or event.",
+    ),
+    STATE: (
+        "Create a new state",
+        "Copies the whole state into a brand-new one with its own event (W_<name>), "
+        "wildcard transition and HKS entries. Other selector branches aren't copied.",
+    ),
+}
 
 
-btn_create_project = tk.Button(project_buttons_frame, text="Create Project", command=lambda: create_project())
-btn_create_project.grid(row=0, column=0, padx=5)
+def resource_path(name):
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, name)
 
-btn_open_project = tk.Button(project_buttons_frame, text="Open Project", command=lambda: open_project())
-btn_open_project.grid(row=0, column=1, padx=5)
 
-#btn_open_only_xml = tk.Button(project_buttons_frame, text="Open only XML", command=lambda: select_only_xml_file())
-#btn_open_only_xml.grid(row=0, column=2, padx=5)
+def load_settings():
+    try:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
 
-run_button = tk.Button(root, text="Run", command=run_parser)
-run_button.grid(row=8, columnspan=3, pady=10)
 
-result_label = tk.Label(root, text="")
-result_label.grid(row=9, columnspan=2)
+def save_settings(data):
+    try:
+        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except OSError:
+        pass
 
-root.mainloop()
+
+class NewProjectDialog(tk.Toplevel):
+    FIELDS = (
+        ("behavior_xml", "Behavior XML (c0000.xml or c9997.xml)", [("XML files", "*.xml")], True),
+        ("cmsg_script", "c0000_cmsg.hks (player projects only)", [("HKS/Lua files", "*.hks *.lua")], False),
+        ("event_id_map", "eventnameid.txt", [("Text files", "*.txt")], False),
+        ("state_id_map", "statenameid.txt", [("Text files", "*.txt")], False),
+    )
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("New Project")
+        self.transient(parent)
+        self.resizable(True, False)
+        self.result = None
+        self.vars = {key: tk.StringVar() for key, *_ in self.FIELDS}
+        self.name_var = tk.StringVar()
+
+        frame = ttk.Frame(self, padding=12)
+        frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
+        ttk.Label(frame, text="Project name").grid(row=0, column=0, sticky="w", pady=3)
+        ttk.Entry(frame, textvariable=self.name_var).grid(row=0, column=1, columnspan=2, sticky="ew", pady=3)
+        for row, (key, label, types, _) in enumerate(self.FIELDS, start=1):
+            ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=3, padx=(0, 8))
+            ttk.Entry(frame, textvariable=self.vars[key], width=50).grid(row=row, column=1, sticky="ew", pady=3)
+            ttk.Button(frame, text="Browse…", command=lambda k=key, t=types: self.browse(k, t)).grid(
+                row=row, column=2, padx=(6, 0)
+            )
+        ttk.Label(
+            frame, foreground="gray", wraplength=520, justify="left",
+            text="Use a separate project per character. The .hks and .txt files are in the action folder "
+                 "and are usually the same for every project. NPC (c9997) projects don't need the .hks.",
+        ).grid(row=len(self.FIELDS) + 1, column=0, columnspan=3, sticky="w", pady=(8, 4))
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=len(self.FIELDS) + 2, column=0, columnspan=3, sticky="e", pady=(8, 0))
+        ttk.Button(buttons, text="Cancel", command=self.destroy).pack(side="right")
+        ttk.Button(buttons, text="Save project…", command=self.save).pack(side="right", padx=6)
+        self.grab_set()
+
+    def browse(self, key, types):
+        path = filedialog.askopenfilename(parent=self, filetypes=types + [("All files", "*.*")])
+        if path:
+            self.vars[key].set(path)
+            if key == "behavior_xml" and not self.name_var.get():
+                self.name_var.set(os.path.splitext(os.path.basename(path))[0])
+
+    def save(self):
+        files = {k: v.get().strip() for k, v in self.vars.items()}
+        if not files["behavior_xml"]:
+            messagebox.showerror("Missing file", "Pick the behavior XML file.", parent=self)
+            return
+        missing = [p for p in files.values() if p and not os.path.isfile(p)]
+        if missing:
+            messagebox.showerror("File not found", "\n".join(missing), parent=self)
+            return
+        name = self.name_var.get().strip() or "SDT-BEH-Project"
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Save project file", defaultextension=".json",
+            filetypes=[("Project files", "*.json")], initialfile=f"{name}.json",
+        )
+        if not path:
+            return
+        try:
+            self.result = Project.create(path, name, **files)
+        except Exception as e:  # noqa: BLE001 - shown to the user
+            messagebox.showerror("Couldn't create project", friendly_error(e), parent=self)
+            return
+        self.destroy()
+
+
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.project = None
+        self.chains = []
+        self.settings = load_settings()
+        self._anim_edited = False
+        self._last_source = ""
+        self._chains_for = None
+
+        root.title(APP_TITLE)
+        root.geometry("820x800")
+        root.minsize(700, 600)
+        try:
+            root.iconbitmap(resource_path("favicon.ico"))
+        except tk.TclError:
+            pass
+
+        outer = ttk.Frame(root, padding=10)
+        outer.pack(fill="both", expand=True)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(5, weight=1)
+
+        # ---- project bar
+        bar = ttk.Frame(outer)
+        bar.grid(row=0, column=0, sticky="ew")
+        bar.columnconfigure(0, weight=1)
+        self.project_label = ttk.Label(bar, text="No project open", font=("TkDefaultFont", 10, "bold"))
+        self.project_label.grid(row=0, column=0, sticky="w")
+        ttk.Button(bar, text="New Project…", command=self.new_project).grid(row=0, column=1, padx=3)
+        ttk.Button(bar, text="Open Project…", command=self.open_project_dialog).grid(row=0, column=2, padx=3)
+        ttk.Button(bar, text="Restore Backup…", command=self.restore_backup).grid(row=0, column=3, padx=3)
+
+        # ---- step 1: source
+        step1 = ttk.LabelFrame(outer, text=" 1. Pick the clip to copy ", padding=8)
+        step1.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        step1.columnconfigure(1, weight=1)
+        ttk.Label(step1, text="ClipGen name").grid(row=0, column=0, sticky="w")
+        self.source_var = tk.StringVar()
+        self.source_box = ttk.Combobox(step1, textvariable=self.source_var)
+        self.source_box.grid(row=0, column=1, sticky="ew", padx=6)
+        self.source_box.bind("<KeyRelease>", self.filter_sources)
+        self.source_box.bind("<<ComboboxSelected>>", lambda e: self.source_changed())
+        self.source_box.bind("<Return>", lambda e: self.source_changed())
+        self.source_box.bind("<FocusOut>", lambda e: self.source_changed())
+        self.chain_label = ttk.Label(step1, text="Used in")
+        self.chain_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.chain_var = tk.StringVar()
+        self.chain_box = ttk.Combobox(step1, textvariable=self.chain_var, state="readonly")
+        self.chain_box.grid(row=1, column=1, sticky="ew", padx=6, pady=(6, 0))
+        self.chain_box.bind("<<ComboboxSelected>>", lambda e: self.chain_changed())
+        self.source_hint = ttk.Label(
+            step1, foreground="gray", wraplength=740, justify="left",
+            text="Type part of a name (e.g. a050_300040 or a000_013800) to search. "
+                 "This is usually the animation ID from DS Anim Studio.",
+        )
+        self.source_hint.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.show_chain_picker(False)
+
+        # ---- step 2: mode
+        step2 = ttk.LabelFrame(outer, text=" 2. What do you want to add? ", padding=8)
+        step2.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        step2.columnconfigure(0, weight=1)
+        self.mode_var = tk.StringVar(value=STATE)
+        self.mode_buttons = {}
+        self.mode_notes = {}
+        for i, (mode, (title, desc)) in enumerate(MODES.items()):
+            rb = ttk.Radiobutton(step2, text=title, value=mode, variable=self.mode_var, command=self.mode_changed)
+            rb.grid(row=i * 2, column=0, sticky="w", pady=(4 if i else 0, 0))
+            note = ttk.Label(step2, text=desc, foreground="gray", wraplength=740, justify="left")
+            note.grid(row=i * 2 + 1, column=0, sticky="w", padx=(22, 0))
+            self.mode_buttons[mode] = rb
+            self.mode_notes[mode] = (note, desc)
+
+        # ---- step 3: names
+        step3 = ttk.LabelFrame(outer, text=" 3. Name the new pieces ", padding=8)
+        step3.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        step3.columnconfigure(1, weight=1)
+        self.new_name_label = ttk.Label(step3, text="New state name")
+        self.new_name_label.grid(row=0, column=0, sticky="w", pady=2)
+        self.new_name_var = tk.StringVar()
+        self.new_name_entry = ttk.Entry(step3, textvariable=self.new_name_var)
+        self.new_name_entry.grid(row=0, column=1, sticky="ew", padx=6, pady=2)
+        ttk.Label(step3, text="New ClipGen name").grid(row=1, column=0, sticky="w", pady=2)
+        self.clip_var = tk.StringVar()
+        self.clip_var.trace_add("write", lambda *a: self.clip_name_changed())
+        ttk.Entry(step3, textvariable=self.clip_var).grid(row=1, column=1, sticky="ew", padx=6, pady=2)
+        ttk.Label(step3, text="New animationName").grid(row=2, column=0, sticky="w", pady=2)
+        self.anim_var = tk.StringVar()
+        anim_entry = ttk.Entry(step3, textvariable=self.anim_var)
+        anim_entry.grid(row=2, column=1, sticky="ew", padx=6, pady=2)
+        anim_entry.bind("<Key>", lambda e: setattr(self, "_anim_edited", True))
+        self.hks_var = tk.BooleanVar(value=True)
+        self.hks_check = ttk.Checkbutton(step3, text="Also update c0000_cmsg.hks (player only)", variable=self.hks_var)
+        self.hks_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.names_hint = ttk.Label(step3, foreground="gray", wraplength=740, justify="left")
+        self.names_hint.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        # ---- actions
+        actions = ttk.Frame(outer)
+        actions.grid(row=4, column=0, sticky="ew", pady=10)
+        self.apply_button = ttk.Button(actions, text="Apply", command=self.apply)
+        self.apply_button.pack(side="right")
+        ttk.Button(actions, text="Preview", command=self.preview).pack(side="right", padx=6)
+
+        # ---- log
+        log_frame = ttk.LabelFrame(outer, text=" Log ", padding=4)
+        log_frame.grid(row=5, column=0, sticky="nsew")
+        log_frame.rowconfigure(0, weight=1)
+        log_frame.columnconfigure(0, weight=1)
+        self.log = tk.Text(log_frame, height=8, wrap="word", state="disabled")
+        self.log.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(log_frame, command=self.log.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        self.log.configure(yscrollcommand=scroll.set)
+        self.log.tag_configure("error", foreground="#c0392b")
+        self.log.tag_configure("warn", foreground="#b9770e")
+        self.log.tag_configure("ok", foreground="#1e8449")
+        self.log.tag_configure("head", font=("TkDefaultFont", 9, "bold"))
+
+        self.all_clips = []
+        self.mode_changed()
+        last = self.settings.get("last_project")
+        if last and os.path.isfile(last):
+            self.open_project(last, quiet=True)
+
+    # ------------------------------------------------------------------ helpers
+
+    def write_log(self, lines, tag=None, heading=None):
+        self.log.configure(state="normal")
+        if heading:
+            self.log.insert("end", heading + "\n", "head")
+        for line in lines:
+            line_tag = tag
+            if line_tag is None:
+                if "WARNING" in line:
+                    line_tag = "warn"
+                elif line.startswith("ERROR"):
+                    line_tag = "error"
+            self.log.insert("end", line + "\n", line_tag or ())
+        self.log.insert("end", "\n")
+        self.log.configure(state="disabled")
+        self.log.see("end")
+
+    def busy(self, on):
+        self.root.config(cursor="watch" if on else "")
+        self.root.update_idletasks()
+
+    # ------------------------------------------------------------------ project
+
+    def new_project(self):
+        dialog = NewProjectDialog(self.root)
+        self.root.wait_window(dialog)
+        if dialog.result:
+            self.open_project(dialog.result.path)
+
+    def open_project_dialog(self):
+        path = filedialog.askopenfilename(title="Open project", filetypes=[("Project files", "*.json")])
+        if path:
+            self.open_project(path)
+
+    def open_project(self, path, quiet=False):
+        self.busy(True)
+        try:
+            project = Project(path)
+            missing = project.missing_files()
+            if missing:
+                raise FileNotFoundError(
+                    "These project files are missing:\n" + "\n".join(project.files[k] for k in missing)
+                )
+            clips = project.behavior().clip_names()
+            character = project.character() or "unknown character"
+        except Exception as e:  # noqa: BLE001 - shown to the user
+            self.busy(False)
+            if not quiet:
+                messagebox.showerror("Couldn't open project", friendly_error(e))
+            self.write_log([f"ERROR: couldn't open {path}: {friendly_error(e)}"])
+            return
+        self.busy(False)
+        self.project = project
+        self.all_clips = clips
+        self.source_box["values"] = clips
+        self.project_label.config(text=f"{project.name}  ({character}, {len(clips)} clips)")
+        has_hks = bool(project.files["cmsg_script"])
+        self.hks_var.set(has_hks and character == "c0000")
+        self.hks_check.config(state="normal" if has_hks else "disabled")
+        self.settings["last_project"] = project.path
+        save_settings(self.settings)
+        lines = [f"{k}: {v or '(not set)'}" for k, v in project.files.items()]
+        self.write_log(lines, heading=f"Opened project {project.name}")
+        self.source_changed(force=True)
+
+    # ------------------------------------------------------------------ step 1
+
+    def filter_sources(self, event):
+        if event.keysym in ("Up", "Down", "Return", "Escape", "Tab"):
+            return
+        text = self.source_var.get().lower()
+        matches = [c for c in self.all_clips if text in c.lower()] if text else self.all_clips
+        self.source_box["values"] = matches[:500]
+
+    def show_chain_picker(self, show):
+        for widget in (self.chain_label, self.chain_box):
+            widget.grid() if show else widget.grid_remove()
+
+    def source_changed(self, force=False):
+        name = self.source_var.get().strip()
+        if name == self._chains_for and not force:
+            return
+        self._chains_for = name
+        self.chains = []
+        self.chain_box["values"] = []
+        self.chain_var.set("")
+        self.show_chain_picker(False)
+        if self.project and name:
+            try:
+                self.chains = self.project.behavior().find_chains(name)
+            except Exception as e:  # noqa: BLE001 - shown to the user
+                self.source_hint.config(text=friendly_error(e), foreground="#c0392b")
+            else:
+                self.chain_box["values"] = [c.describe(types=False) for c in self.chains]
+                self.chain_box.current(0)
+                self.show_chain_picker(len(self.chains) > 1)
+                if name != self._last_source:
+                    self.clip_var.set(name)
+                    self._anim_edited = False
+                    self.clip_name_changed()
+                self._last_source = name
+        self.chain_changed()
+
+    def chain_changed(self):
+        chain = self.current_chain()
+        if chain is not None:
+            prefix = f"Used in {len(self.chains)} places, pick one above. " if len(self.chains) > 1 else ""
+            self.source_hint.config(text=f"{prefix}Path: {chain.describe(types=False)}", foreground="gray")
+        available = {
+            VARIATION: (chain is not None and chain.cmsg is not None, "Not available: the clip isn't directly inside a CMSG."),
+            BRANCH: (chain is not None and chain.branch_selector is not None,
+                     "Not available: there's no selector above this clip's CMSG."),
+            STATE: (chain is not None, ""),
+        }
+        for mode, (ok, reason) in available.items():
+            note, desc = self.mode_notes[mode]
+            self.mode_buttons[mode].config(state="normal" if ok or chain is None else "disabled")
+            note.config(text=desc if ok or chain is None else reason)
+        if chain is not None and not available[self.mode_var.get()][0]:
+            self.mode_var.set(STATE)
+        self.mode_changed()
+
+    def current_chain(self):
+        if not self.chains:
+            return None
+        index = self.chain_box.current()
+        return self.chains[index if index >= 0 else 0]
+
+    # ------------------------------------------------------------------ step 2/3
+
+    def mode_changed(self):
+        mode = self.mode_var.get()
+        chain = self.current_chain()
+        b = self.project.behavior() if (self.project and chain) else None
+        if mode == VARIATION:
+            self.new_name_label.config(text="(not needed)")
+            self.new_name_entry.config(state="disabled")
+            target = b.name_of(chain.cmsg) if b and chain.cmsg else "the CMSG"
+            hint = f"The new clip is added to {target}. Change the aXXX offset, e.g. a050_300040 → a106_300040."
+        elif mode == BRANCH:
+            self.new_name_label.config(text="New branch name")
+            self.new_name_entry.config(state="normal")
+            target = b.name_of(chain.branch_selector) if b and chain.branch_selector else "the selector"
+            hint = (f"Creates <branch name>_CMSG inside {target}, e.g. HangMoveB → HangMoveB_CMSG. "
+                    "The log tells you which selector index to use in HKS.")
+        else:
+            self.new_name_label.config(text="New state name")
+            self.new_name_entry.config(state="normal")
+            old = b.name_of(chain.state_info) if b else "the original state"
+            hint = (f"Copies {old} under the new name; copied objects are renamed by swapping "
+                    f"'{old}' for the new name (e.g. HangMove → AltHangMove, HangMoveL_CMSG → AltHangMoveL_CMSG). "
+                    "To add to an existing state instead, use variation or branch.")
+        self.hks_check.grid() if mode == STATE else self.hks_check.grid_remove()
+        self.names_hint.config(text=hint)
+
+    def clip_name_changed(self):
+        if self._anim_edited:
+            return
+        m = re.match(r"(a\d+_\d+)", self.clip_var.get().strip())
+        self.anim_var.set(m.group(1) if m else "")
+
+    # ------------------------------------------------------------------ actions
+
+    def build_request(self):
+        if not self.project:
+            raise ValueError("Open or create a project first.")
+        if not self.chains:
+            raise ValueError("Pick an existing ClipGen to copy in step 1.")
+        source = self.source_var.get().strip()
+        clip = self.clip_var.get().strip()
+        if clip == source:
+            raise ValueError("The new ClipGen name is the same as the original. Change the ID or offset.")
+        mode = self.mode_var.get()
+        return Request(
+            mode=mode,
+            source_clip=source,
+            chain_index=max(self.chain_box.current(), 0),
+            clip_name=clip,
+            animation_name=self.anim_var.get().strip(),
+            new_name=self.new_name_var.get().strip() if mode != VARIATION else "",
+            edit_hks=bool(self.hks_var.get()) and mode == STATE,
+        )
+
+    def preview(self):
+        try:
+            req = self.build_request()
+            self.busy(True)
+            lines = self.project.preview(req)
+        except Exception as e:  # noqa: BLE001 - shown to the user
+            self.busy(False)
+            self.write_log([f"ERROR: {friendly_error(e)}"], heading="Preview")
+            return
+        self.busy(False)
+        self.write_log(lines, heading="Preview (nothing written yet)")
+
+    def apply(self):
+        try:
+            req = self.build_request()
+        except Exception as e:  # noqa: BLE001
+            self.write_log([f"ERROR: {friendly_error(e)}"])
+            return
+        if not messagebox.askyesno(APP_TITLE, "Write these changes to your files?\nA backup is made first."):
+            return
+        try:
+            self.busy(True)
+            result = self.project.apply(req)
+        except Exception as e:  # noqa: BLE001 - shown to the user
+            self.busy(False)
+            self.write_log([f"ERROR: {friendly_error(e)}", "Nothing was written."], heading="Apply failed")
+            messagebox.showerror(APP_TITLE, friendly_error(e))
+            return
+        self.busy(False)
+        self.write_log(result.log, heading="Applied")
+        self.write_log([f"Backup saved: {result.backup}"] + [f"Wrote {p}" for p in result.written], tag="ok")
+        self.write_log(self.next_steps(req), heading="Next steps")
+        self.all_clips = self.project.behavior().clip_names()
+        self.source_box["values"] = self.all_clips
+        self.source_changed(force=True)
+
+    def next_steps(self, req):
+        steps = ["Add the animation to the character's .anibnd.", "Convert the XML back to .hkx and repack the behbnd."]
+        if req.mode == STATE:
+            steps.insert(0, f'Fire it from HKS with FireEvent("W_{req.new_name}") (e.g. in c0000_transition.hks or c9997.hks).')
+        if req.mode == BRANCH:
+            steps.insert(0, "Set the selector's index variable in HKS to play the new branch.")
+        return [f"• {s}" for s in steps]
+
+    def restore_backup(self):
+        if not self.project:
+            messagebox.showinfo(APP_TITLE, "Open a project first.")
+            return
+        backups = self.project.backups()
+        if not backups:
+            messagebox.showinfo(APP_TITLE, "This project has no backups yet.")
+            return
+        path = filedialog.askopenfilename(
+            title="Pick a backup to restore", initialdir=self.project.backup_dir,
+            filetypes=[("Backups", "*.zip")],
+        )
+        if not path or not messagebox.askyesno(
+            APP_TITLE, f"Restore {os.path.basename(path)}?\nThis overwrites the current project files."
+        ):
+            return
+        try:
+            restored = self.project.restore(path)
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror(APP_TITLE, friendly_error(e))
+            return
+        self.write_log([f"Restored {p}" for p in restored], tag="ok", heading=f"Restored {os.path.basename(path)}")
+        self.open_project(self.project.path, quiet=True)
+
+
+def main():
+    root = tk.Tk()
+    App(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
