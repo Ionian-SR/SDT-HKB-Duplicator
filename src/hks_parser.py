@@ -1,146 +1,129 @@
+"""In-memory editor for c0000_cmsg.hks."""
+
 import re
 
-class HKSParser:
-    def __init__(self, hks_file):
-        self.hks_file = hks_file
-    
-    def append_def(self, definition):
-        with open(self.hks_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+HKB_CONST_RE = re.compile(r"^(HKB_STATE_\w+)\s*=\s*(-?\d+)[ \t]*$", re.M)
+FUNCTION_KINDS = ("onUpdate", "onActivate", "onDeactivate")
 
-        output_lines = []
-        for line in lines:
-            if "g_paramHkbState" in line:
-                output_lines.append(definition + "\n")  # insert before the target line
-            output_lines.append(line)
 
-        with open(self.hks_file, 'w', encoding='utf-8') as f:
-            f.writelines(output_lines)
+class HksError(Exception):
+    pass
 
-        print("✅ Inserted text above 'g_paramHkbState'")
-    
-    def reformat_g_paramHkbState(self):
-        with open(self.hks_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
 
-        start_idx = None
-        end_idx = None
-        brace_level = 0
-        inside_block = False
+def to_hkb_state(state_name):
+    """GroundAttackCombo5 -> HKB_STATE_GROUND_ATTACK_COMBO_5 (FromSoftware's convention)."""
+    s = re.sub(r"(?<!^)(?=[A-Z])", "_", state_name)
+    s = re.sub(r"(\D)(\d)", r"\1_\2", s)
+    return "HKB_STATE_" + s.upper()
 
-        for i, line in enumerate(lines):
-            if not inside_block and "g_paramHkbState" in line and "=" in line and "{" in line:
-                start_idx = i
-                brace_level += line.count("{") - line.count("}")
-                inside_block = True
-            elif inside_block:
-                brace_level += line.count("{") - line.count("}")
-                if brace_level == 0:
-                    end_idx = i
-                    break
 
-        if start_idx is None or end_idx is None:
-            print("g_paramHkbState block not found or malformed.")
-            return
+class HksScript:
+    def __init__(self, path):
+        self.path = path
+        with open(path, "rb") as f:
+            raw = f.read()
+        self.bom = raw.startswith(b"\xef\xbb\xbf")
+        text = raw.decode("utf-8-sig")
+        self.newline = "\r\n" if "\r\n" in text else "\n"
+        self.text = text.replace("\r\n", "\n")
 
-        # Extract and collapse the original block
-        block_lines = lines[start_idx:end_idx + 1]
-        raw_block = "".join(block_lines)
+    def to_bytes(self):
+        data = self.text.replace("\n", self.newline).encode("utf-8")
+        return (b"\xef\xbb\xbf" + data) if self.bom else data
 
-        # Extract individual entries like [HKB_STATE_SOMETHING] = { ... }
-        entry_pattern = r'(\[\s*HKB_STATE_[^\]]+\s*\]\s*=\s*\{[^}]*\})'
-        entries = re.findall(entry_pattern, raw_block)
+    # ---------------------------------------------------------------- queries
 
-        # Format entries line-by-line
-        formatted_block = "g_paramHkbState = {\n"
-        for entry in entries:
-            formatted_block += f"    {entry},\n"
-        formatted_block = formatted_block.rstrip(",\n") + "\n}\n"
+    def constants(self):
+        return {m.group(1): int(m.group(2)) for m in HKB_CONST_RE.finditer(self.text)}
 
-        # Replace original lines
-        lines[start_idx:end_idx + 1] = [formatted_block]
+    def _table_span(self):
+        """(start, end) of the ``g_paramHkbState = { ... }`` table; end is the closing brace."""
+        m = re.search(r"^g_paramHkbState\s*=\s*\{", self.text, re.M)
+        if not m:
+            raise HksError("Couldn't find the g_paramHkbState table in the HKS file.")
+        depth = 0
+        for i in range(m.end() - 1, len(self.text)):
+            c = self.text[i]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return m.start(), i
+        raise HksError("The g_paramHkbState table has unbalanced braces.")
 
-        with open(self.hks_file, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
+    def table_entry(self, const):
+        start, end = self._table_span()
+        m = re.search(r"\[\s*" + re.escape(const) + r"\s*\]\s*=\s*\{[^{}]*\}", self.text[start:end])
+        return m.group(0) if m else None
 
-        print("Reformatted g_paramHkbState block.")
-    
-    def get_max_number(self):
-        with open(self.hks_file, 'r', encoding='utf-8') as f:
-            content = f.read()
+    def _function(self, state_name, kind):
+        m = re.search(
+            rf"^function {re.escape(state_name)}_{kind}\(\)\n.*?^end[ \t]*$",
+            self.text, re.M | re.S,
+        )
+        return m.group(0) if m else None
 
-        # Find all integers using regex
-        numbers = list(map(int, re.findall(r'\b\d+\b', content)))
-        if not numbers:
-            return 1  # Default start if no numbers found
+    # ---------------------------------------------------------------- editing
 
-        return max(numbers)
-    
-    def find_hkb_state(self, state_name):
-        with open(self.hks_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        # Regex to find the full line
-        pattern = rf"\[\s*{re.escape(state_name)}\s*\]\s*=\s*\{{[^}}]*\}},?"
-        match = re.search(pattern, content)
-        # Search for the line
-        if match:
-            return match.group(0)
+    def add_state(self, new_state, source_state):
+        """Register ``new_state`` as a copy of ``source_state``. Returns log lines."""
+        new_const = to_hkb_state(new_state)
+        source_const = to_hkb_state(source_state)
+        constants = self.constants()
+        if new_const in constants:
+            raise HksError(f"{new_const} already exists in the HKS file.")
+        if not constants:
+            raise HksError("No HKB_STATE_ constants found in the HKS file.")
+        log = []
+
+        # 1. Constant, right after the last existing one.
+        value = max(constants.values()) + 1
+        last = list(HKB_CONST_RE.finditer(self.text))[-1]
+        self.text = self.text[:last.end()] + f"\n{new_const} = {value}" + self.text[last.end():]
+        log.append(f"HKS: added {new_const} = {value}.")
+
+        # 2. g_paramHkbState entry, copied from the source state.
+        entry = self.table_entry(source_const)
+        if entry is None:
+            log.append(
+                f"HKS WARNING: {source_const} has no g_paramHkbState entry to copy; "
+                f"add one for {new_const} manually."
+            )
         else:
-            return None
-    
-    def append_g_param(self, new_line):
-        with open(self.hks_file, 'r', encoding='utf-8') as f:
-            content = f.read()
+            new_entry = re.sub(r"^\[\s*" + re.escape(source_const) + r"\s*\]", f"[{new_const}]", entry)
+            start, end = self._table_span()
+            body = self.text[start:end]
+            stripped = body.rstrip()
+            needs_comma = not stripped.endswith((",", "{"))
+            insert_at = start + len(stripped)
+            if "\n" in body.strip():
+                # Multi-line table: match the indentation of the last entry.
+                last_line = stripped[stripped.rfind("\n") + 1:]
+                indent = last_line[: len(last_line) - len(last_line.lstrip())]
+                addition = ("," if needs_comma else "") + f"\n{indent}{new_entry}"
+            else:
+                addition = ("," if needs_comma else "") + f" {new_entry}"
+            self.text = self.text[:insert_at] + addition + self.text[insert_at:]
+            log.append(f"HKS: added g_paramHkbState entry {new_entry}.")
 
-        param_name = 'g_paramHkbState'
-        pattern = rf"({param_name}\s*=\s*\{{)(.*?)(\n\}})"
-        match = re.search(pattern, content, re.DOTALL)
-
-        if not match:
-            raise ValueError(f"Could not find {param_name} block in the file.")
-
-        # Break out the parts
-        start_block = match.group(1)
-        block_body = match.group(2).strip()
-        end_block = match.group(3)
-
-        # Split block body into lines and clean up
-        block_lines = [line.strip() for line in block_body.splitlines() if line.strip()]
-        block_lines.append(new_line.strip())
-
-        # Add commas to all but the last line
-        #for i in range(len(block_lines) - 1):
-        block_lines[-2] = re.sub(r",?\s*$", ",", block_lines[-2])  # force comma
-        block_lines[-1] = re.sub(r",\s*$", "", block_lines[-1])      # remove comma from last
-
-        # Indent all lines
-        indented_block = ['    ' + line for line in block_lines]
-
-        # Reconstruct the full content
-        modified_block = start_block + "\n" + "\n".join(indented_block) + end_block
-        updated_content = re.sub(pattern, modified_block, content, flags=re.DOTALL)
-
-        # Write back to file
-        with open(self.hks_file, 'w', encoding='utf-8') as f:
-            f.write(updated_content)
-
-    def append_functions(self, state_name, hkb_state_name):
-        template = f'''
-function {state_name}_onUpdate()
-    UpdateState({hkb_state_name})
-end
-
-function {state_name}_onActivate()
-    return
-    
-end
-
-function {state_name}_onDeactivate()
-    return
-    
-end
-'''
-        with open(self.hks_file, 'a', encoding='utf-8') as f:
-            f.write('\n' + template)
-        
+        # 3. Functions, copied from the source state (or a blank template).
+        blocks = []
+        copied = 0
+        for kind in FUNCTION_KINDS:
+            source = self._function(source_state, kind)
+            if source is not None:
+                copied += 1
+                block = source.replace(f"function {source_state}_{kind}()", f"function {new_state}_{kind}()", 1)
+                block = re.sub(r"\b" + re.escape(source_const) + r"\b", new_const, block)
+            elif kind == "onUpdate":
+                block = f"function {new_state}_{kind}()\n    UpdateState({new_const})\n    \nend"
+            else:
+                block = f"function {new_state}_{kind}()\n    return\n    \nend"
+            blocks.append(block)
+        self.text = self.text.rstrip("\n") + "\n\n" + "\n\n".join(blocks) + "\n"
+        if copied == len(FUNCTION_KINDS):
+            log.append(f"HKS: added {new_state}_onUpdate/onActivate/onDeactivate (copied from {source_state}).")
+        else:
+            log.append(f"HKS: added {new_state}_onUpdate/onActivate/onDeactivate.")
+        return log
