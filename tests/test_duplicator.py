@@ -174,7 +174,7 @@ class NewState(ProjectCase):
 
 class Branch(ProjectCase):
     def test_branch_joins_existing_selector(self):
-        self.project.apply(Request(BRANCH, "a000_020202", "a000_020297", "a000_020297", new_name="HangMoveB_CMSG"))
+        self.project.apply(Request(BRANCH, "a000_020202", "a000_020297", "a000_020297", new_name="HangMoveB"))
         b = self.behavior()
         selector = b.find_by_name("HangMove Selector-Dir")[0]
         gens = b.pointer_list(selector, "generators")
@@ -186,7 +186,6 @@ class Branch(ProjectCase):
         self.assertEqual([b.name_of(g) for g in b.pointer_list(new_cmsg, "generators")], ["a000_020297"])
         # No new state or event.
         self.assertNotIn("W_HangMoveB", b.event_names())
-        self.assertNotIn("W_HangMoveB_CMSG", b.event_names())
 
     def test_branch_needs_a_selector(self):
         with self.assertRaises(BehaviorError):
@@ -210,67 +209,6 @@ class Variation(ProjectCase):
         before = len(b.animation_paths())
         self.project.apply(Request(VARIATION, "a050_300040", "a050_300040_copy", "a000_020202"))
         self.assertEqual(len(self.behavior().animation_paths()), before)
-
-
-class LayeredState(ProjectCase):
-    """GroundSpecialAttackHoldMove plays a _Motion and an _Anime layer, both selected by variable 70."""
-
-    SOURCE = "a104_316511_Motion"
-
-    def selectors(self, b):
-        return [b.find_by_name(f"GroundSpecialAttackHoldMove_{k}Selector")[0] for k in ("Motion", "Anime")]
-
-    def test_branch_is_added_to_both_layers_at_the_same_index(self):
-        result = self.project.apply(Request(
-            BRANCH, self.SOURCE, "a106_316511_Motion", "a106_316511",
-            new_name="GroundSpecialAttackHoldMove_FL_CMSG_Motion",
-        ))
-        self.assertFalse(any("WARNING" in line for line in result.log), result.log)
-        b = self.behavior()
-        motion, anime = self.selectors(b)
-        self.assertEqual(len(b.pointer_list(motion, "generators")), 5)
-        self.assertEqual(len(b.pointer_list(anime, "generators")), 5)
-        new_motion, new_anime = b.pointer_list(motion, "generators")[4], b.pointer_list(anime, "generators")[4]
-        self.assertEqual(b.name_of(new_motion), "GroundSpecialAttackHoldMove_FL_CMSG_Motion")
-        self.assertEqual(b.name_of(new_anime), "GroundSpecialAttackHoldMove_FL_CMSG_Anime")
-        clip_m = b.pointer_list(new_motion, "generators")[0]
-        clip_a = b.pointer_list(new_anime, "generators")[0]
-        self.assertEqual((b.name_of(clip_m), b.name_of(clip_a)), ("a106_316511_Motion", "a106_316511_Anime"))
-        # Both layers play the same animation file, registered once.
-        self.assertEqual(b.get_value(clip_m, "animationInternalId"), b.get_value(clip_a, "animationInternalId"))
-        self.assertEqual(b.animation_paths().count(b.animation_paths()[b.get_value(clip_m, "animationInternalId")]), 1)
-
-    def test_variation_is_added_to_both_layers(self):
-        self.project.apply(Request(VARIATION, self.SOURCE, "a106_316511_Motion", "a106_316511"))
-        b = self.behavior()
-        for k in ("Motion", "Anime"):
-            cmsg = b.find_by_name(f"GroundSpecialAttackHoldMove_F_CMSG_{k}")[0]
-            self.assertEqual([b.name_of(g) for g in b.pointer_list(cmsg, "generators")],
-                             [f"a104_316511_{k}", f"a106_316511_{k}"])
-
-    def test_new_state_copies_both_layers(self):
-        self.project.apply(Request(STATE, self.SOURCE, "a106_316511_Motion", "a106_316511", new_name="AltHoldMove"))
-        b = self.behavior()
-        state = b.find_by_name("AltHoldMove", "hkbStateMachine::StateInfo")[0]
-        layer_gen = b.get_value(state, "generator")
-        self.assertEqual(b.name_of(layer_gen), "AltHoldMove LayerGenerator")
-        old_layers = set(b.pointer_list(b.find_by_name("GroundSpecialAttackHoldMove LayerGenerator")[0], "layers"))
-        layers = b.pointer_list(layer_gen, "layers")
-        self.assertEqual(len(layers), 2)
-        self.assertFalse(old_layers & set(layers), "new state must not share layers with the original")
-        clips = []
-        for layer in layers:
-            selector = b.get_value(layer, "generator")
-            (cmsg,) = b.pointer_list(selector, "generators")
-            (clip,) = b.pointer_list(cmsg, "generators")
-            clips.append(b.name_of(clip))
-        self.assertEqual(sorted(clips), ["a106_316511_Anime", "a106_316511_Motion"])
-
-    def test_unmappable_name_is_rejected_and_nothing_written(self):
-        before = self.read(self.xml)
-        with self.assertRaises(BehaviorError):
-            self.project.apply(Request(BRANCH, self.SOURCE, "a106_316511_Motion", "a106_316511", new_name="Test_CMSG"))
-        self.assertEqual(self.read(self.xml), before)
 
 
 class Npc(ProjectCase):

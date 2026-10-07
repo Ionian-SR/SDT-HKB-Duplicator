@@ -21,7 +21,7 @@ MODES = {
     BRANCH: (
         "Add a branch to the selector",
         "Adds a new CMSG + clip next to the existing ones in the selector above it "
-        "(e.g. HangMoveB_CMSG next to HangMoveL_CMSG/HangMoveR_CMSG). No new state or event.",
+        "(e.g. HangMoveB next to HangMoveL/HangMoveR). No new state or event.",
     ),
     STATE: (
         "Create a new state",
@@ -130,8 +130,6 @@ class App:
         self.settings = load_settings()
         self._anim_edited = False
         self._last_source = ""
-        self._mode_names = {BRANCH: "", STATE: ""}
-        self._shown_mode = None
         self._chains_for = None
 
         root.title(APP_TITLE)
@@ -351,9 +349,6 @@ class App:
                     self.clip_var.set(name)
                     self._anim_edited = False
                     self.clip_name_changed()
-                    self._mode_names[BRANCH] = ""
-                    if self.mode_var.get() == BRANCH:
-                        self.new_name_var.set("")
                 self._last_source = name
         self.chain_changed()
 
@@ -361,10 +356,7 @@ class App:
         chain = self.current_chain()
         if chain is not None:
             prefix = f"Used in {len(self.chains)} places, pick one above. " if len(self.chains) > 1 else ""
-            text = f"{prefix}Path: {chain.describe(types=False)}"
-            for twin in self.project.behavior().layer_twins(chain):
-                text += f"\nMatching layer (gets the same change): {twin.describe(types=False)}"
-            self.source_hint.config(text=text, foreground="gray")
+            self.source_hint.config(text=f"{prefix}Path: {chain.describe(types=False)}", foreground="gray")
         available = {
             VARIATION: (chain is not None and chain.cmsg is not None, "Not available: the clip isn't directly inside a CMSG."),
             BRANCH: (chain is not None and chain.branch_selector is not None,
@@ -391,28 +383,17 @@ class App:
         mode = self.mode_var.get()
         chain = self.current_chain()
         b = self.project.behavior() if (self.project and chain) else None
-        # Each mode remembers its own name field.
-        if self._shown_mode in self._mode_names:
-            self._mode_names[self._shown_mode] = self.new_name_var.get()
-        if mode == BRANCH and not self._mode_names[BRANCH] and b and chain.cmsg:
-            self._mode_names[BRANCH] = b.name_of(chain.cmsg)
-        self.new_name_var.set(self._mode_names.get(mode, ""))
-        self._shown_mode = mode
-
-        twins = b.parallel_chains(chain)[1:] if b else []
         if mode == VARIATION:
             self.new_name_label.config(text="(not needed)")
             self.new_name_entry.config(state="disabled")
-            targets = [b.name_of(c.cmsg) for c, _, _ in [(chain, 0, 0)] + twins if c.cmsg] if b else []
-            hint = (f"The new clip is added to {' and '.join(targets) or 'the CMSG'}. "
-                    "Change the aXXX offset, e.g. a050_300040 → a106_300040.")
+            target = b.name_of(chain.cmsg) if b and chain.cmsg else "the CMSG"
+            hint = f"The new clip is added to {target}. Change the aXXX offset, e.g. a050_300040 → a106_300040."
         elif mode == BRANCH:
-            self.new_name_label.config(text="New CMSG name")
+            self.new_name_label.config(text="New branch name")
             self.new_name_entry.config(state="normal")
             target = b.name_of(chain.branch_selector) if b and chain.branch_selector else "the selector"
-            source = b.name_of(chain.cmsg) if b and chain.cmsg else "HangMoveL_CMSG"
-            hint = (f"Adds a CMSG to {target}. Name it like its siblings, e.g. change the direction "
-                    f"letter in {source}. The log tells you which selector index to use in HKS.")
+            hint = (f"Creates <branch name>_CMSG inside {target}, e.g. HangMoveB → HangMoveB_CMSG. "
+                    "The log tells you which selector index to use in HKS.")
         else:
             self.new_name_label.config(text="New state name")
             self.new_name_entry.config(state="normal")
@@ -420,9 +401,6 @@ class App:
             hint = (f"Copies {old} under the new name; copied objects are renamed by swapping "
                     f"'{old}' for the new name (e.g. HangMove → AltHangMove, HangMoveL_CMSG → AltHangMoveL_CMSG). "
                     "To add to an existing state instead, use variation or branch.")
-        if twins:
-            hint += (f" This state has {len(twins) + 1} matching layers driven together, so the same change "
-                     "is made in each; their names are worked out from yours (e.g. _Motion → _Anime).")
         self.hks_check.grid() if mode == STATE else self.hks_check.grid_remove()
         self.names_hint.config(text=hint)
 

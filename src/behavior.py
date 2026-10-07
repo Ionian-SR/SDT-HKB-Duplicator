@@ -6,7 +6,6 @@ leaves a half-edited file behind.
 """
 
 import copy
-import os
 import re
 from collections import defaultdict
 
@@ -19,7 +18,6 @@ STATE_MACHINE = "hkbStateMachine"
 CMSG = "CustomManualSelectorGenerator"
 CLIP = "hkbClipGenerator"
 SELECTOR = "hkbManualSelectorGenerator"
-LAYER_GENERATOR = "hkbLayerGenerator"
 
 # Containers whose children are alternatives (only one plays at a time).
 # When a new state is copied, these are trimmed down to the copied branch.
@@ -271,88 +269,6 @@ class Behavior:
                 return parent
         raise BehaviorError(f"Couldn't find the state machine that owns state '{self.name_of(state_info)}'.")
 
-    def _pointer_slot(self, parent, child):
-        """Where ``parent`` points at ``child``: (field name, array index or None)."""
-        for f in self.objects[parent].find("record"):
-            arr = f.find("array")
-            if arr is not None:
-                for i, el in enumerate(self.array_items(arr)):
-                    if el.tag == "pointer" and el.get("id") == child:
-                        return f.get("name"), i
-            ptr = f.find("pointer")
-            if ptr is not None and ptr.get("id") == child:
-                return f.get("name"), None
-        return None
-
-    def _follow_slot(self, parent, slot):
-        name, index = slot
-        f = self.field(parent, name)
-        if f is None:
-            return None
-        if index is None:
-            ptr = f.find("pointer")
-            return ptr.get("id") if ptr is not None else None
-        arr = f.find("array")
-        items = self.array_items(arr) if arr is not None else []
-        if index >= len(items) or items[index].tag != "pointer":
-            return None
-        return items[index].get("id")
-
-    def layer_twins(self, chain):
-        """The matching paths in the other layers of a layered state.
-
-        States like GroundSpecialAttackHoldMove play a _Motion and an _Anime
-        layer together, each with its own selector driven by the same
-        variable, so whatever is added to one layer must be added to the
-        others at the same position. A layer only counts as a twin if it has
-        the same shape (same types, same number of branches at each level).
-        """
-        ids = chain.ids
-        layer_gens = [i for i, oid in enumerate(ids[:-1]) if self.type_of(oid) == LAYER_GENERATOR]
-        if not layer_gens:
-            return []
-        k = layer_gens[-1]
-        own = self._pointer_slot(ids[k], ids[k + 1])
-        if own is None or own[1] is None:
-            return []
-        slots = [self._pointer_slot(ids[i], ids[i + 1]) for i in range(k + 1, len(ids) - 1)]
-        if None in slots:
-            return []
-        twins = []
-        for i, layer in enumerate(self.pointer_list(ids[k], own[0])):
-            if i == own[1] or layer not in self.objects or self.type_of(layer) != self.type_of(ids[k + 1]):
-                continue
-            path = [layer]
-            for step, slot in enumerate(slots):
-                ours_parent, ours_child = ids[k + 1 + step], ids[k + 2 + step]
-                child = self._follow_slot(path[-1], slot)
-                if child is None or child not in self.objects or self.type_of(child) != self.type_of(ours_child):
-                    break
-                if slot[1] is not None and (
-                    len(self.pointer_list(path[-1], slot[0])) != len(self.pointer_list(ours_parent, slot[0]))
-                ):
-                    break
-                path.append(child)
-            else:
-                twins.append(Chain(self, ids[:k + 1] + path))
-        return twins
-
-    def parallel_chains(self, chain):
-        """[(chain, clip namer, CMSG namer)] for the chain and each twin layer.
-
-        A namer turns a name for the picked layer into the twin's name, e.g.
-        a106_316511_Motion -> a106_316511_Anime.
-        """
-        same = lambda name: name  # noqa: E731
-        result = [(chain, same, same)]
-        for twin in self.layer_twins(chain):
-            clip_namer = _name_mapper(self.name_of(chain.clip), self.name_of(twin.clip))
-            cmsg_namer = same
-            if chain.cmsg and twin.cmsg:
-                cmsg_namer = _name_mapper(self.name_of(chain.cmsg), self.name_of(twin.cmsg))
-            result.append((twin, clip_namer, cmsg_namer))
-        return result
-
     def animation_paths(self):
         return [s.get("value") for s in self.array_items(self.array(self.string_data, "animationNames"))]
 
@@ -429,115 +345,55 @@ class Behavior:
 
     # -------------------------------------------------------------- operations
 
-    def _check_new_names(self, names):
-        if len(set(names)) != len(names):
-            raise BehaviorError("Two of the new objects would get the same name: " + ", ".join(names))
-        for name in names:
-            if self.find_by_name(name):
-                raise BehaviorError(f"An object named '{name}' already exists.")
-
     def add_variation(self, chain, clip_name, animation_name):
-        """Mode 1: add a clip to the source clip's existing CMSG (in every twin layer)."""
-        if chain.cmsg is None:
+        """Mode 1: add a clip to the source clip's existing CMSG."""
+        cmsg = chain.cmsg
+        if cmsg is None:
             raise BehaviorError("The source clip isn't directly inside a CMSG, so it can't get a variation.")
-        plan = [(c, clip_namer(clip_name)) for c, clip_namer, _ in self.parallel_chains(chain)]
-        self._check_new_names([name for _, name in plan])
-        for c, _ in plan:
-            if c.cmsg is None:
-                raise BehaviorError(f"The {self.name_of(c.clip)} layer has no CMSG to add a variation to.")
-            for sibling in self.pointer_list(c.cmsg, "generators"):
-                if sibling in self.objects and self.get_value(sibling, "animationName") == animation_name:
-                    raise BehaviorError(
-                        f"{self.name_of(c.cmsg)} already plays {animation_name}. "
-                        "Variations need a different aXXX offset (e.g. a000 → a106)."
-                    )
-        log = []
-        for c, name in plan:
-            clip, anim_index, anim_path, added = self._make_clip(c.clip, name, animation_name)
-            self._append_pointer(c.cmsg, "generators", clip)
-            log.append(f"Added clip {name} ({clip}) to {self.name_of(c.cmsg)}.")
-            if added or c is chain:
-                log.append(_anim_log(anim_path, anim_index, added))
-        return {"log": log}
+        for sibling in self.pointer_list(cmsg, "generators"):
+            if sibling in self.objects and self.get_value(sibling, "animationName") == animation_name:
+                raise BehaviorError(
+                    f"{self.name_of(cmsg)} already plays {animation_name}. "
+                    "Variations need a different aXXX offset (e.g. a000 → a106)."
+                )
+        clip, anim_index, anim_path, added = self._make_clip(chain.clip, clip_name, animation_name)
+        self._append_pointer(cmsg, "generators", clip)
+        return {
+            "log": [
+                f"Added clip {clip_name} ({clip}) to {self.name_of(cmsg)}.",
+                _anim_log(anim_path, anim_index, added),
+            ],
+        }
 
-    def add_branch(self, chain, cmsg_name, clip_name, animation_name):
-        """Mode 2: add a new CMSG + clip next to the existing ones in a selector (in every twin layer)."""
-        if chain.branch_selector is None:
+    def add_branch(self, chain, branch_name, clip_name, animation_name):
+        """Mode 2: add a new CMSG + clip next to the existing ones in a selector."""
+        selector = chain.branch_selector
+        if selector is None:
             raise BehaviorError("There's no selector above this clip's CMSG, so a new branch can't be added.")
-        plan = [
-            (c, cmsg_namer(cmsg_name), clip_namer(clip_name))
-            for c, clip_namer, cmsg_namer in self.parallel_chains(chain)
-        ]
-        self._check_new_names([n for _, cm, cl in plan for n in (cm, cl)])
-        for c, _, _ in plan:
-            if c.branch_selector is None:
-                raise BehaviorError(f"The {self.name_of(c.clip)} layer has no selector to add a branch to.")
-        log, indices = [], []
-        for c, new_cmsg_name, new_clip_name in plan:
-            clip, anim_index, anim_path, added = self._make_clip(c.clip, new_clip_name, animation_name)
-            # CMSGs belonging to the same state share its userData.
-            user_data = self.get_value(c.cmsg, "userData")
-            cmsg = self._new_cmsg(c.cmsg, c.clip, clip, new_cmsg_name, user_data)
-            index = self._append_pointer(c.branch_selector, "generators", cmsg)
-            indices.append(index)
-            log.append(
-                f"Added {new_cmsg_name} ({cmsg}) with clip {new_clip_name} ({clip}) to "
-                f"{self.name_of(c.branch_selector)} as generator index {index}."
-            )
-            if added or c is chain:
-                log.append(_anim_log(anim_path, anim_index, added))
-        if len(set(indices)) > 1:
-            log.append(
-                "WARNING: the new branch got different indices in each layer "
-                f"({', '.join(map(str, indices))}); the layers' selectors no longer line up."
-            )
-        return {"log": log, "branch_index": indices[0]}
-
-    def _copy_path(self, ids, source_clip, new_clip, renamed, user_data, replacements, state_name=None):
-        """Copy ``ids`` (top → clip) bottom-up onto ``new_clip``; return (new top id, created, stateId).
-
-        Selectors keep only the copied branch. Other containers keep their
-        other children, except those listed in ``replacements`` (old id → copy).
-        """
-        below_old, below_new = source_clip, new_clip
-        created, new_state_id = [], None
-        cmsg = ids[-2] if len(ids) >= 2 and self.type_of(ids[-2]) == CMSG else None
-        for oid in reversed(ids[:-1]):
-            if oid == cmsg:
-                new = self._new_cmsg(oid, source_clip, new_clip, renamed(oid), user_data)
-            else:
-                obj = self._clone_object(oid)
-                new = obj.get("id")
-                self.objects[new] = obj
-                is_state = self.type_of(oid) == STATE_INFO
-                if is_state:
-                    self.set_value(new, "name", state_name)
-                elif self.field(new, "name") is not None:
-                    self.set_value(new, "name", renamed(oid))
-                if self.type_of(oid) in SELECTOR_TYPES and self.array(new, "generators") is not None:
-                    self._set_pointer_array(self.array(new, "generators"), [below_new])
-                    if self.field(new, "selectedGeneratorIndex") is not None:
-                        self.set_value(new, "selectedGeneratorIndex", 0)
-                else:
-                    swap = dict(replacements, **{below_old: below_new})
-                    for ptr in obj.iter("pointer"):
-                        if ptr.get("id") in swap:
-                            ptr.set("id", swap[ptr.get("id")])
-                if is_state:
-                    new_state_id = self._max_int_field("stateId", "toStateId") + 1
-                    self.set_value(new, "stateId", new_state_id)
-                self._append_object(obj)
-            created.append((new, self.name_of(new)))
-            below_old, below_new = oid, new
-        return below_new, created, new_state_id
+        cmsg_name = f"{branch_name}_CMSG"
+        if self.find_by_name(cmsg_name):
+            raise BehaviorError(f"An object named '{cmsg_name}' already exists.")
+        clip, anim_index, anim_path, added = self._make_clip(chain.clip, clip_name, animation_name)
+        # CMSGs belonging to the same state share its userData.
+        user_data = self.get_value(chain.cmsg, "userData")
+        cmsg = self._new_cmsg(chain.cmsg, chain.clip, clip, cmsg_name, user_data)
+        index = self._append_pointer(selector, "generators", cmsg)
+        return {
+            "log": [
+                f"Added {cmsg_name} ({cmsg}) with clip {clip_name} ({clip}) to "
+                f"{self.name_of(selector)} as generator index {index}.",
+                _anim_log(anim_path, anim_index, added),
+            ],
+            "branch_index": index,
+        }
 
     def add_state(self, chain, state_name, clip_name, animation_name):
         """Mode 3: copy the whole path into a brand-new state.
 
-        Selectors on the path keep only the copied branch. In a layered state
-        the matching path in every twin layer is copied too; layers without a
-        twin are shared with the original. Variable binding sets, transition
-        effects and other referenced objects are shared, not copied.
+        Selectors on the path keep only the copied branch; other containers
+        keep their other children (shared with the original). Variable
+        binding sets, transition effects and other referenced objects are
+        shared, not copied.
         """
         old_state = chain.state_info
         old_state_name = self.name_of(old_state)
@@ -557,34 +413,44 @@ class Behavior:
                 return name.replace(old_state_name, state_name, 1)
             return f"{state_name} {name}".strip()
 
-        targets = self.parallel_chains(chain)
-        # Twins share the path down to the layer generator; only their own part is copied.
-        split = {}
-        for c, _, _ in targets[1:]:
-            split[c] = next(i for i, (a, b) in enumerate(zip(chain.ids, c.ids)) if a != b)
-        own_objects = list(chain.ids[1:-1]) + [oid for c, i in split.items() for oid in c.ids[i:-1]]
-        new_names = [clip_namer(clip_name) for _, clip_namer, _ in targets]
-        new_names += [renamed(oid) for oid in own_objects if self.field(oid, "name") is not None]
-        self._check_new_names(new_names)
+        for oid in chain.ids[1:-1]:
+            if self.field(oid, "name") is not None and self.find_by_name(renamed(oid)):
+                raise BehaviorError(f"An object named '{renamed(oid)}' already exists.")
 
         log = []
+        clip, anim_index, anim_path, added = self._make_clip(chain.clip, clip_name, animation_name)
+        log.append(_anim_log(anim_path, anim_index, added))
         new_user_data = self._max_int_field("userData") + 1
-        created, replacements = [], {}
-        main_clip = None
-        for c, clip_namer, _ in targets:
-            clip, anim_index, anim_path, added = self._make_clip(c.clip, clip_namer(clip_name), animation_name)
-            if c is chain:
-                main_clip = clip
-                log.append(_anim_log(anim_path, anim_index, added))
-                continue
-            i = split[c]
-            top, made, _ = self._copy_path(c.ids[i:], c.clip, clip, renamed, new_user_data, {})
-            replacements[c.ids[i]] = top
-            created += [(clip, self.name_of(clip))] + made
-        new_state, made, new_state_id = self._copy_path(
-            chain.ids, chain.clip, main_clip, renamed, new_user_data, replacements, state_name,
-        )
-        created = [(main_clip, clip_name)] + made + created
+
+        # Copy bottom-up so each copy can point at the copy below it.
+        below_old, below_new = chain.clip, clip
+        created = [(clip, clip_name)]
+        for oid in reversed(chain.ids[:-1]):
+            if oid == chain.cmsg:
+                new = self._new_cmsg(oid, chain.clip, clip, renamed(oid), new_user_data)
+            else:
+                obj = self._clone_object(oid)
+                new = obj.get("id")
+                self.objects[new] = obj
+                if oid == old_state:
+                    self.set_value(new, "name", state_name)
+                elif self.field(new, "name") is not None:
+                    self.set_value(new, "name", renamed(oid))
+                if self.type_of(oid) in SELECTOR_TYPES and self.array(new, "generators") is not None:
+                    self._set_pointer_array(self.array(new, "generators"), [below_new])
+                    if self.field(new, "selectedGeneratorIndex") is not None:
+                        self.set_value(new, "selectedGeneratorIndex", 0)
+                else:
+                    for ptr in obj.iter("pointer"):
+                        if ptr.get("id") == below_old:
+                            ptr.set("id", below_new)
+                if oid == old_state:
+                    new_state_id = self._max_int_field("stateId", "toStateId") + 1
+                    self.set_value(new, "stateId", new_state_id)
+                self._append_object(obj)
+            created.append((new, self.name_of(new)))
+            below_old, below_new = oid, new
+        new_state = below_new
 
         self._append_pointer(state_machine, "states", new_state)
 
@@ -602,7 +468,7 @@ class Behavior:
             )
 
         log.append(f"Created state {state_name} (stateId {new_state_id}) in {self.name_of(state_machine)}.")
-        log.extend(f"  new object {oid}: {name or '(' + self.type_of(oid) + ')'}" for oid, name in created)
+        log.extend(f"  new object {oid}: {name}" for oid, name in reversed(created))
         log.append(f"Added event {event_name} (index {event_index}).")
         log.append(self._add_wildcard_transition(state_machine, old_state, event_index, new_state_id))
 
@@ -678,46 +544,6 @@ class Behavior:
         if decl is not None:
             lines.insert(0, decl)
         return b"\n".join(lines + trailing)
-
-
-def _name_mapper(source, twin):
-    """Return a function that renames like ``source`` → ``twin`` does.
-
-    The differing part is kept to whole ``_``-separated words, e.g.
-    a104_316511_Motion → a104_316511_Anime maps a106_316511_Motion to
-    a106_316511_Anime, and a000_005200_Motion → a000_005200 maps
-    a000_005210_Motion to a000_005210.
-    """
-    def sep_before(text, i, start=0):
-        return i == start or text[i - 1] == "_"
-
-    def sep_at(text, i):
-        return i == len(text) or text[i] == "_"
-
-    p = len(os.path.commonprefix([source, twin]))
-    if not (sep_before(source, p) or (sep_at(source, p) and sep_at(twin, p))):
-        p = source.rfind("_", 0, p) + 1
-    s = len(os.path.commonprefix([source[p:][::-1], twin[p:][::-1]]))
-    ls, lt = len(source) - s, len(twin) - s
-    if s and not (source[ls] == "_" or (sep_before(source, ls, p) and sep_before(twin, lt, p))):
-        tail = source[ls:]
-        s = len(tail) - tail.find("_") if "_" in tail else 0
-        ls, lt = len(source) - s, len(twin) - s
-    old, new, tail = source[p:ls], twin[p:lt], source[ls:]
-
-    def mapped(name):
-        if old:
-            i = name.rfind(old)
-        else:
-            i = len(name) - len(tail) if name.endswith(tail) else -1
-        if i < 0:
-            raise BehaviorError(
-                f"This state has a matching layer ({twin}) that needs the same change, but its name "
-                f"can't be worked out from '{name}'. Keep the same naming pattern as {source}."
-            )
-        return name[:i] + new + name[i + len(old):]
-
-    return mapped
 
 
 def _anim_log(path, index, added):

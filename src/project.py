@@ -31,7 +31,7 @@ class Request:
     clip_name: str
     animation_name: str
     chain_index: int = 0
-    new_name: str = ""          # new CMSG name (mode 2) or state name (mode 3)
+    new_name: str = ""          # branch name (mode 2) or state name (mode 3)
     edit_hks: bool = False
 
 
@@ -104,7 +104,7 @@ class Project:
             elif not NAME_RE.match(value):
                 problems.append(f"{label} '{value}' should only use letters, numbers and _.")
         if req.mode in (BRANCH, STATE):
-            label = "CMSG name" if req.mode == BRANCH else "State name"
+            label = "Branch name" if req.mode == BRANCH else "State name"
             if not req.new_name:
                 problems.append(f"{label} is empty.")
             elif not NAME_RE.match(req.new_name):
