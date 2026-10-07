@@ -285,6 +285,89 @@ class Behavior:
                 best = max(best, int(el.get("value")))
         return best
 
+    # --------------------------------------------------------------- variables
+
+    def variable_names(self):
+        return [s.get("value") for s in self.array_items(self.array(self.string_data, "variableNames"))]
+
+    def ensure_variable(self, name, var_type, minimum, maximum, initial_word):
+        """Return (index, created) for behavior variable ``name``, adding it if missing.
+
+        A variable is one entry in each of four parallel lists: variableNames,
+        variableInfos, variableBounds and the initial wordVariableValues.
+        """
+        names = self.variable_names()
+        infos = self.array(self.graph_data, "variableInfos")
+        if name in names:
+            index = names.index(name)
+            existing_type = int(self.array_items(infos)[index].find("field[@name='type']/integer").get("value"))
+            if existing_type != var_type:
+                raise BehaviorError(f"Variable '{name}' already exists but has type {existing_type}, not {var_type}.")
+            return index, False
+        value_set = self.get_value(self.graph_data, "variableInitialValues")
+        lists = [
+            self.array(self.string_data, "variableNames"),
+            infos,
+            self.array(self.graph_data, "variableBounds"),
+            self.array(value_set, "wordVariableValues"),
+        ]
+        if len({len(self.array_items(a)) for a in lists}) != 1:
+            raise BehaviorError("The variable lists in this XML are out of sync; add the variable manually.")
+
+        def copy_last(array):
+            return copy.deepcopy(self.array_items(array)[-1])
+
+        name_el = etree.Element("string", value=name)
+        info = copy_last(infos)
+        info.find("field[@name='role']/record/field[@name='role']/integer").set("value", "0")
+        info.find("field[@name='role']/record/field[@name='flags']/integer").set("value", "0")
+        info.find("field[@name='type']/integer").set("value", str(var_type))
+        bounds = copy_last(lists[2])
+        bounds.find("field[@name='min']/record/field[@name='value']/integer").set("value", str(minimum))
+        bounds.find("field[@name='max']/record/field[@name='value']/integer").set("value", str(maximum))
+        word = copy_last(lists[3])
+        word.find("field[@name='value']/integer").set("value", str(initial_word))
+        indices = {self._array_append(a, el) for a, el in zip(lists, (name_el, info, bounds, word))}
+        return indices.pop(), True
+
+    def binding_set_for(self, member_path, variable_index):
+        """Return (id, created) of a binding set that binds only ``member_path`` to the variable."""
+        for oid in self.objects_of_type("hkbVariableBindingSet"):
+            records = self.array_items(self.array(oid, "bindings"))
+            if len(records) == 1 and _binding(records[0]) == (member_path, variable_index, -1, 0):
+                return oid, False
+        templates = [o for o in self.objects_of_type("hkbVariableBindingSet")
+                     if len(self.array_items(self.array(o, "bindings"))) == 1]
+        if not templates:
+            raise BehaviorError("No variable binding set in this XML to use as a template.")
+        obj = self._clone_object(templates[0])
+        new_id = obj.get("id")
+        self.objects[new_id] = obj
+        record = self.array_items(self.array(new_id, "bindings"))[0]
+        for field_name, value in (("memberPath", member_path), ("variableIndex", variable_index),
+                                  ("bitIndex", -1), ("bindingType", 0)):
+            record.find(f"field[@name='{field_name}']/*").set("value", str(value))
+        if self.field(new_id, "indexOfBindingToEnable") is not None:
+            self.set_value(new_id, "indexOfBindingToEnable", -1)
+        self._append_object(obj)
+        return new_id, True
+
+    def clips_under(self, state_info):
+        """Every clip played by a state (not descending into nested state machines)."""
+        found, seen = [], set()
+        stack = [self.get_value(state_info, "generator")]
+        while stack:
+            oid = stack.pop()
+            if oid in seen or oid not in self.objects or oid == NULL:
+                continue
+            seen.add(oid)
+            kind = self.type_of(oid)
+            if kind == CLIP:
+                found.append(oid)
+            elif kind != STATE_MACHINE:
+                stack.extend(p.get("id") for p in self.objects[oid].iter("pointer"))
+        return found
+
     # ------------------------------------------------------------ shared steps
 
     def _register_animation(self, source_clip, animation_name):
@@ -569,6 +652,14 @@ class Behavior:
         if decl is not None:
             lines.insert(0, decl)
         return b"\n".join(lines + trailing)
+
+
+def _binding(record):
+    def value(name):
+        el = record.find(f"field[@name='{name}']/*")
+        v = el.get("value") if el is not None else None
+        return int(v) if v is not None and v.lstrip("-").isdigit() else v
+    return value("memberPath"), value("variableIndex"), value("bitIndex"), value("bindingType")
 
 
 def _anim_log(path, index, added):

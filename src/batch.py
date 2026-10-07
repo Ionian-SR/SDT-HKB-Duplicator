@@ -1,4 +1,9 @@
-"""Batch jobs: one-click runs built on the single duplicate operations."""
+"""Batch jobs: one-click runs built on the single duplicate operations.
+
+Each job is a small dataclass with ``validate()``, ``describe()`` and
+``run(behavior)`` returning (log, new_states, changed); new_states are
+(state name, event name) pairs that still need .txt entries.
+"""
 
 import re
 from dataclasses import dataclass
@@ -38,6 +43,9 @@ class AttackRange:
 
     def describe(self):
         return f"{self.prefix}{self.start}-{self.prefix}{self.end} ({', '.join(self.offsets)})"
+
+    def run(self, behavior):
+        return add_attack_range(behavior, self)
 
 
 def add_attack_range(b, spec):
@@ -146,3 +154,84 @@ def add_attack_range(b, spec):
         f"{len(complete)} already complete, {len(skipped)} skipped.",
     ] + detail
     return log, new_states, bool(created or extended)
+
+
+# Float variable, 0-999, starting at 1.0 (0x3F800000), as in the hand-made example.
+VARIABLE_TYPE_REAL = 4
+ONE_AS_WORD = 1065353216
+
+
+@dataclass
+class PlaybackSpeedBinding:
+    """Bind every attack clip's playbackSpeed to the AnimationPlaybackSpeed variable."""
+
+    prefix: str = "Attack"
+    start: int = 3000
+    end: int = 3109
+    variable: str = "AnimationPlaybackSpeed"
+    member: str = "playbackSpeed"
+
+    def validate(self):
+        problems = []
+        if not re.match(r"^[A-Za-z_]+$", self.prefix):
+            problems.append(f"State prefix '{self.prefix}' should only use letters and _.")
+        if self.start > self.end:
+            problems.append(f"The range {self.start}-{self.end} is backwards.")
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", self.variable):
+            problems.append(f"Variable name '{self.variable}' should only use letters, numbers and _.")
+        return problems
+
+    def describe(self):
+        return f"{self.member} → {self.variable} on {self.prefix}{self.start}-{self.prefix}{self.end}"
+
+    def run(self, behavior):
+        return bind_playback_speed(behavior, self)
+
+
+def bind_playback_speed(b, spec):
+    """Point each clip in the range at one shared binding set for the speed variable.
+
+    Creates the variable and the binding set if this file doesn't have them.
+    Clips that already use a different binding set are left alone and listed,
+    since replacing it would drop whatever that set binds.
+    """
+    states = []
+    for number in range(spec.start, spec.end + 1):
+        found = b.find_by_name(f"{spec.prefix}{number}", STATE_INFO)
+        if found:
+            states.append(found[0])
+    if not states:
+        return [f"No {spec.prefix}{spec.start}-{spec.end} states in this XML; nothing to bind."], [], False
+
+    log = [f"Batch: bind {spec.describe()}:"]
+    index, created_var = b.ensure_variable(spec.variable, VARIABLE_TYPE_REAL, 0, 999, ONE_AS_WORD)
+    if created_var:
+        log.append(f"  Added variable {spec.variable} (#{index}): float, 0-999, starts at 1.0.")
+    binding, created_set = b.binding_set_for(spec.member, index)
+
+    bound, already, conflicts = [], [], []
+    for state in states:
+        for clip in b.clips_under(state):
+            current = b.get_value(clip, "variableBindingSet")
+            if current == binding:
+                already.append(clip)
+            elif current in (None, "object0"):
+                b.set_value(clip, "variableBindingSet", binding)
+                bound.append(clip)
+            else:
+                conflicts.append(f"{b.name_of(clip)} (uses {current})")
+    bound_names = sorted({b.name_of(c) for c in bound})
+    if created_set:
+        log.append(f"  Added binding set {binding}: {spec.member} → variable #{index}.")
+    elif bound:
+        log.append(f"  Using existing binding set {binding}.")
+    log.append(
+        f"  {len(set(bound))} clips bound, {len(set(already))} already bound, "
+        f"{len(conflicts)} skipped, across {len(states)} states."
+    )
+    if conflicts:
+        log.append("  WARNING: these clips already have a different binding set and were left alone: "
+                   + ", ".join(conflicts))
+    if bound_names:
+        log.append("  Bound: " + ", ".join(bound_names))
+    return log, [], bool(bound or created_var or created_set)

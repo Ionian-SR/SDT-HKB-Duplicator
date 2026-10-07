@@ -7,7 +7,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from batch import AttackRange
+from batch import AttackRange, PlaybackSpeedBinding
 from project import BRANCH, STATE, VARIATION, Project, Request, friendly_error
 
 APP_TITLE = "SDT HKB Duplicator"
@@ -124,7 +124,7 @@ class NewProjectDialog(tk.Toplevel):
 
 
 class BatchDialog(tk.Toplevel):
-    """NPC attacks: copy Attack3000 into every missing Attack3000-3109, with each offset."""
+    """One-click NPC attack jobs that share a state range."""
 
     def __init__(self, app):
         super().__init__(app.root)
@@ -132,49 +132,82 @@ class BatchDialog(tk.Toplevel):
         self.title("Batch: NPC Attacks")
         self.transient(app.root)
         self.resizable(False, False)
-        defaults = AttackRange()
+        defaults, speed = AttackRange(), PlaybackSpeedBinding()
         self.source_var = tk.StringVar(value=f"{defaults.prefix}{defaults.source}")
         self.start_var = tk.StringVar(value=str(defaults.start))
         self.end_var = tk.StringVar(value=str(defaults.end))
         self.offsets_var = tk.StringVar(value=", ".join(defaults.offsets))
+        self.variable_var = tk.StringVar(value=speed.variable)
 
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="States").grid(row=0, column=0, sticky="w", pady=3)
+        ttk.Entry(frame, textvariable=self.start_var, width=7).grid(row=0, column=1, sticky="w")
+        ttk.Label(frame, text="to").grid(row=0, column=2, padx=4)
+        ttk.Entry(frame, textvariable=self.end_var, width=7).grid(row=0, column=3, sticky="w")
+
+        attacks = ttk.LabelFrame(frame, text=" Add missing attacks ", padding=8)
+        attacks.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(10, 0))
         ttk.Label(
-            frame, wraplength=440, justify="left",
-            text="Adds every missing attack state in the range by copying the source state, and adds any "
-                 "missing offsets to the ones that already exist. Safe to run again: anything already "
-                 "there is left alone. Events and .txt entries are reused when they already exist.",
-        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
-        ttk.Label(frame, text="Copy from state").grid(row=1, column=0, sticky="w", pady=3)
-        ttk.Entry(frame, textvariable=self.source_var, width=16).grid(row=1, column=1, columnspan=3, sticky="w")
-        ttk.Label(frame, text="Numbers").grid(row=2, column=0, sticky="w", pady=3)
-        ttk.Entry(frame, textvariable=self.start_var, width=7).grid(row=2, column=1, sticky="w")
-        ttk.Label(frame, text="to").grid(row=2, column=2, padx=4)
-        ttk.Entry(frame, textvariable=self.end_var, width=7).grid(row=2, column=3, sticky="w")
-        ttk.Label(frame, text="Offsets").grid(row=3, column=0, sticky="w", pady=3)
-        ttk.Entry(frame, textvariable=self.offsets_var, width=24).grid(row=3, column=1, columnspan=3, sticky="w")
-        buttons = ttk.Frame(frame)
-        buttons.grid(row=4, column=0, columnspan=4, sticky="e", pady=(12, 0))
-        ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
-        ttk.Button(buttons, text="Run", command=lambda: self.app.run_batch(self.spec(), apply=True)).pack(
+            attacks, wraplength=420, justify="left", foreground="gray",
+            text="Copies the source state into every missing attack in the range and adds any missing "
+                 "offsets to the ones that exist. Existing events and .txt entries are reused.",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        ttk.Label(attacks, text="Copy from state").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(attacks, textvariable=self.source_var, width=16).grid(row=1, column=1, sticky="w")
+        ttk.Label(attacks, text="Offsets").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Entry(attacks, textvariable=self.offsets_var, width=24).grid(row=2, column=1, sticky="w")
+        self._buttons(attacks, 3, self.attack_spec)
+
+        speed_box = ttk.LabelFrame(frame, text=" Bind animation speed ", padding=8)
+        speed_box.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+        ttk.Label(
+            speed_box, wraplength=420, justify="left", foreground="gray",
+            text="Binds playbackSpeed of every clip in the range to this variable through one shared "
+                 "binding set. The variable (float, 0-999, starts at 1.0) is added if the file doesn't "
+                 "have it. Clips that already use a different binding set are left alone.",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        ttk.Label(speed_box, text="Variable").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(speed_box, textvariable=self.variable_var, width=24).grid(row=1, column=1, sticky="w")
+        self._buttons(speed_box, 2, self.speed_spec)
+
+        ttk.Label(frame, foreground="gray", text="Both jobs are safe to run again; finished work is skipped.").grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Button(frame, text="Close", command=self.destroy).grid(row=3, column=3, sticky="e", pady=(10, 0))
+
+    def _buttons(self, parent, row, make_spec):
+        box = ttk.Frame(parent)
+        box.grid(row=row, column=0, columnspan=3, sticky="e", pady=(6, 0))
+        ttk.Button(box, text="Run", command=lambda: self.app.run_batch(make_spec(), apply=True)).pack(side="right")
+        ttk.Button(box, text="Preview", command=lambda: self.app.run_batch(make_spec(), apply=False)).pack(
             side="right", padx=6
         )
-        ttk.Button(buttons, text="Preview", command=lambda: self.app.run_batch(self.spec(), apply=False)).pack(
-            side="right"
-        )
 
-    def spec(self):
-        m = re.match(r"^\s*([A-Za-z_]+)(\d+)\s*$", self.source_var.get())
+    def _range(self):
         try:
-            start, end = int(self.start_var.get()), int(self.end_var.get())
+            return int(self.start_var.get()), int(self.end_var.get())
         except ValueError:
-            start = end = None
-        if not m or start is None:
-            messagebox.showerror("Batch", "Use a state like Attack3000 and whole numbers for the range.", parent=self)
+            messagebox.showerror("Batch", "Use whole numbers for the state range.", parent=self)
+            return None
+
+    def attack_spec(self):
+        bounds = self._range()
+        m = re.match(r"^\s*([A-Za-z_]+)(\d+)\s*$", self.source_var.get())
+        if bounds is None:
+            return None
+        if not m:
+            messagebox.showerror("Batch", "Use a source state like Attack3000.", parent=self)
             return None
         offsets = tuple(o for o in re.split(r"[\s,]+", self.offsets_var.get().strip()) if o)
-        return AttackRange(prefix=m.group(1), source=int(m.group(2)), start=start, end=end, offsets=offsets)
+        return AttackRange(prefix=m.group(1), source=int(m.group(2)), start=bounds[0], end=bounds[1], offsets=offsets)
+
+    def speed_spec(self):
+        bounds = self._range()
+        m = re.match(r"^\s*([A-Za-z_]+)", self.source_var.get())
+        if bounds is None:
+            return None
+        return PlaybackSpeedBinding(prefix=m.group(1) if m else "Attack", start=bounds[0], end=bounds[1],
+                                    variable=self.variable_var.get().strip())
 
 
 class App:
@@ -556,11 +589,12 @@ class App:
         self.write_log(result.log, heading=heading)
         if result.written:
             self.write_log([f"Backup saved: {result.backup}"] + [f"Wrote {p}" for p in result.written], tag="ok")
-            self.write_log(
-                ["• Add the new animations to the character's .anibnd (only the ones the enemy really has).",
-                 "• Convert the XML back to .hkx and repack the behbnd."],
-                heading="Next steps",
-            )
+            steps = ["• Convert the XML back to .hkx and repack the behbnd."]
+            if isinstance(spec, AttackRange):
+                steps.insert(0, "• Add the new animations to the character's .anibnd (only the ones the enemy really has).")
+            else:
+                steps.insert(0, f"• Set {spec.variable} from HKS to change the attack speed (1.0 = normal).")
+            self.write_log(steps, heading="Next steps")
             self.all_clips = self.project.behavior().clip_names()
             self.source_box["values"] = self.all_clips
 

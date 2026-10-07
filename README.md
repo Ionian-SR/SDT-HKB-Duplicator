@@ -69,6 +69,14 @@ This is a tool that automates a majority of the process to add new havok behavio
 - You can change the source state, the number range and the offsets (e.g. `a000, a100, a101`).
 - You still need to add the animations the enemy actually has to its `.anibnd`.
 
+### Bind animation speed
+The second job in the same dialog binds every attack clip's `playbackSpeed` to the `AnimationPlaybackSpeed` variable, so HKS can speed attacks up or slow them down.
+- If the file doesn't have the variable yet, it's added as a float from 0 to 999 that starts at 1.0 (normal speed).
+- All clips share one binding set (`playbackSpeed` → the variable); an existing matching one is reused.
+- Clips that already use a different binding set are left alone and listed in the log, since replacing it would drop whatever that set binds.
+- Attacks added afterwards by **Add missing attacks** are copied from Attack3000, so they come out already bound.
+- Set the speed from HKS with the variable name, e.g. `SetVariable("AnimationPlaybackSpeed", 1.2)`.
+
 ## After running this tool
 - This tool updates the cmsg_hks file for c0000 edits, but will **NOT** do anything for c9997 edits. You will have to modify c9997.hks yourself if you want to add a new event for NPCs to use.
 - You still need to add the animation to the .anibnd file for both c9997 and c0000.

@@ -8,7 +8,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from batch import AttackRange, add_attack_range
+from batch import AttackRange, PlaybackSpeedBinding
 from behavior import Behavior, BehaviorError
 from hks_parser import HksError, HksScript
 from id_maps import IdMap
@@ -148,7 +148,7 @@ class Project:
         if problems:
             raise ProjectError("\n".join(problems))
         behavior = Behavior(self.files["behavior_xml"])
-        log, new_states, changed = add_attack_range(behavior, spec)
+        log, new_states, changed = spec.run(behavior)
         outputs = {}
         if new_states:
             self._register_names(new_states, log, outputs)
@@ -158,7 +158,7 @@ class Project:
 
     def _build(self, req):
         """Run the request on fresh in-memory copies. Returns (log, {path: bytes})."""
-        if isinstance(req, AttackRange):
+        if isinstance(req, (AttackRange, PlaybackSpeedBinding)):
             return self._build_batch(req)
         self._validate(req)
         behavior = Behavior(self.files["behavior_xml"])

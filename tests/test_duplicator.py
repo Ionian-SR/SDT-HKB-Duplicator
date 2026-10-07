@@ -14,7 +14,7 @@ SRC = os.path.join(HERE, "..", "src")
 TEMPLATE = os.path.join(SRC, "template")
 sys.path.insert(0, SRC)
 
-from batch import AttackRange  # noqa: E402
+from batch import AttackRange, PlaybackSpeedBinding  # noqa: E402
 from behavior import Behavior, BehaviorError  # noqa: E402
 from hks_parser import HksScript, to_hkb_state  # noqa: E402
 from id_maps import IdMap  # noqa: E402
@@ -280,6 +280,59 @@ class BatchAttacks(ProjectCase):
     def test_bad_offsets_are_rejected(self):
         with self.assertRaises(ProjectError):
             self.project.apply(AttackRange(offsets=("a000", "b100")))
+
+
+class BindPlaybackSpeed(ProjectCase):
+    xml = "c9997.xml"
+    hks = ""
+
+    def test_adds_variable_and_binds_every_attack_clip(self):
+        before = self.behavior()
+        self.assertNotIn("AnimationPlaybackSpeed", before.variable_names())
+        result = self.project.apply(PlaybackSpeedBinding())
+        self.assertTrue(result.written)
+        b = self.behavior()
+        index = b.variable_names().index("AnimationPlaybackSpeed")
+        value_set = b.get_value(b.graph_data, "variableInitialValues")
+        # Same four entries as the hand-made example: float, 0-999, starts at 1.0.
+        self.assertEqual(len(b.array_items(b.array(b.graph_data, "variableInfos"))), index + 1)
+        info = b.array_items(b.array(b.graph_data, "variableInfos"))[index]
+        self.assertEqual(info.find("field[@name='type']/integer").get("value"), "4")
+        bounds = b.array_items(b.array(b.graph_data, "variableBounds"))[index]
+        self.assertEqual(bounds.find("field[@name='max']/record/field[@name='value']/integer").get("value"), "999")
+        word = b.array_items(b.array(value_set, "wordVariableValues"))[index]
+        self.assertEqual(word.find("field[@name='value']/integer").get("value"), "1065353216")
+
+        bindings = set()
+        for n in range(3000, 3110):
+            for state in b.find_by_name(f"Attack{n}", "hkbStateMachine::StateInfo"):
+                bindings |= {b.get_value(c, "variableBindingSet") for c in b.clips_under(state)}
+        self.assertEqual(len(bindings), 1)
+        (binding,) = bindings
+        record = b.array_items(b.array(binding, "bindings"))[0]
+        self.assertEqual(record.find("field[@name='memberPath']/string").get("value"), "playbackSpeed")
+        self.assertEqual(record.find("field[@name='variableIndex']/integer").get("value"), str(index))
+        # Clips outside the range are untouched.
+        other = b.find_by_name("a000_013800_hkx_AutoSet_00")[0]
+        self.assertEqual(b.get_value(other, "variableBindingSet"), "object0")
+
+        self.assertEqual(self.project.apply(PlaybackSpeedBinding()).written, [])
+
+    def test_attacks_added_later_inherit_the_binding(self):
+        self.project.apply(PlaybackSpeedBinding())
+        self.project.apply(AttackRange())
+        self.assertEqual(self.project.apply(PlaybackSpeedBinding()).written, [])
+
+    def test_clip_with_other_binding_is_left_alone(self):
+        b = self.behavior()
+        clip = b.find_by_name("a000_003001_hkx_AutoSet_01")[0]
+        other = b.objects_of_type("hkbVariableBindingSet")[0]
+        b.set_value(clip, "variableBindingSet", other)
+        with open(self.path(self.xml), "wb") as f:
+            f.write(b.to_bytes())
+        result = self.project.apply(PlaybackSpeedBinding())
+        self.assertTrue(any("WARNING" in line and "a000_003001_hkx_AutoSet_01" in line for line in result.log))
+        self.assertEqual(self.behavior().get_value(clip, "variableBindingSet"), other)
 
 
 class Backups(ProjectCase):
