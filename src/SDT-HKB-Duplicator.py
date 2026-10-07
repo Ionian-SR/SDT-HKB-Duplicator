@@ -7,6 +7,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from batch import AttackRange
 from project import BRANCH, STATE, VARIATION, Project, Request, friendly_error
 
 APP_TITLE = "SDT HKB Duplicator"
@@ -122,6 +123,60 @@ class NewProjectDialog(tk.Toplevel):
         self.destroy()
 
 
+class BatchDialog(tk.Toplevel):
+    """NPC attacks: copy Attack3000 into every missing Attack3000-3109, with each offset."""
+
+    def __init__(self, app):
+        super().__init__(app.root)
+        self.app = app
+        self.title("Batch: NPC Attacks")
+        self.transient(app.root)
+        self.resizable(False, False)
+        defaults = AttackRange()
+        self.source_var = tk.StringVar(value=f"{defaults.prefix}{defaults.source}")
+        self.start_var = tk.StringVar(value=str(defaults.start))
+        self.end_var = tk.StringVar(value=str(defaults.end))
+        self.offsets_var = tk.StringVar(value=", ".join(defaults.offsets))
+
+        frame = ttk.Frame(self, padding=12)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(
+            frame, wraplength=440, justify="left",
+            text="Adds every missing attack state in the range by copying the source state, and adds any "
+                 "missing offsets to the ones that already exist. Safe to run again: anything already "
+                 "there is left alone. Events and .txt entries are reused when they already exist.",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
+        ttk.Label(frame, text="Copy from state").grid(row=1, column=0, sticky="w", pady=3)
+        ttk.Entry(frame, textvariable=self.source_var, width=16).grid(row=1, column=1, columnspan=3, sticky="w")
+        ttk.Label(frame, text="Numbers").grid(row=2, column=0, sticky="w", pady=3)
+        ttk.Entry(frame, textvariable=self.start_var, width=7).grid(row=2, column=1, sticky="w")
+        ttk.Label(frame, text="to").grid(row=2, column=2, padx=4)
+        ttk.Entry(frame, textvariable=self.end_var, width=7).grid(row=2, column=3, sticky="w")
+        ttk.Label(frame, text="Offsets").grid(row=3, column=0, sticky="w", pady=3)
+        ttk.Entry(frame, textvariable=self.offsets_var, width=24).grid(row=3, column=1, columnspan=3, sticky="w")
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=4, column=0, columnspan=4, sticky="e", pady=(12, 0))
+        ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
+        ttk.Button(buttons, text="Run", command=lambda: self.app.run_batch(self.spec(), apply=True)).pack(
+            side="right", padx=6
+        )
+        ttk.Button(buttons, text="Preview", command=lambda: self.app.run_batch(self.spec(), apply=False)).pack(
+            side="right"
+        )
+
+    def spec(self):
+        m = re.match(r"^\s*([A-Za-z_]+)(\d+)\s*$", self.source_var.get())
+        try:
+            start, end = int(self.start_var.get()), int(self.end_var.get())
+        except ValueError:
+            start = end = None
+        if not m or start is None:
+            messagebox.showerror("Batch", "Use a state like Attack3000 and whole numbers for the range.", parent=self)
+            return None
+        offsets = tuple(o for o in re.split(r"[\s,]+", self.offsets_var.get().strip()) if o)
+        return AttackRange(prefix=m.group(1), source=int(m.group(2)), start=start, end=end, offsets=offsets)
+
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -153,7 +208,8 @@ class App:
         self.project_label.grid(row=0, column=0, sticky="w")
         ttk.Button(bar, text="New Project…", command=self.new_project).grid(row=0, column=1, padx=3)
         ttk.Button(bar, text="Open Project…", command=self.open_project_dialog).grid(row=0, column=2, padx=3)
-        ttk.Button(bar, text="Restore Backup…", command=self.restore_backup).grid(row=0, column=3, padx=3)
+        ttk.Button(bar, text="Batch: NPC Attacks…", command=self.open_batch).grid(row=0, column=3, padx=3)
+        ttk.Button(bar, text="Restore Backup…", command=self.restore_backup).grid(row=0, column=4, padx=3)
 
         # ---- step 1: source
         step1 = ttk.LabelFrame(outer, text=" 1. Pick the clip to copy ", padding=8)
@@ -467,6 +523,46 @@ class App:
         self.all_clips = self.project.behavior().clip_names()
         self.source_box["values"] = self.all_clips
         self.source_changed(force=True)
+
+    def open_batch(self):
+        if not self.project:
+            messagebox.showinfo(APP_TITLE, "Open a project first.")
+            return
+        BatchDialog(self)
+
+    def run_batch(self, spec, apply):
+        if spec is None:
+            return
+        if apply and not messagebox.askyesno(
+            APP_TITLE, f"Run {spec.describe()} and write the changes?\nA backup is made first."
+        ):
+            return
+        heading = "Batch" if apply else "Batch preview (nothing written yet)"
+        try:
+            self.busy(True)
+            if apply:
+                result = self.project.apply(spec)
+            else:
+                lines = self.project.preview(spec)
+        except Exception as e:  # noqa: BLE001 - shown to the user
+            self.busy(False)
+            self.write_log([f"ERROR: {friendly_error(e)}", "Nothing was written."], heading=heading)
+            messagebox.showerror(APP_TITLE, friendly_error(e))
+            return
+        self.busy(False)
+        if not apply:
+            self.write_log(lines, heading=heading)
+            return
+        self.write_log(result.log, heading=heading)
+        if result.written:
+            self.write_log([f"Backup saved: {result.backup}"] + [f"Wrote {p}" for p in result.written], tag="ok")
+            self.write_log(
+                ["• Add the new animations to the character's .anibnd (only the ones the enemy really has).",
+                 "• Convert the XML back to .hkx and repack the behbnd."],
+                heading="Next steps",
+            )
+            self.all_clips = self.project.behavior().clip_names()
+            self.source_box["values"] = self.all_clips
 
     def next_steps(self, req):
         steps = ["Add the animation to the character's .anibnd.", "Convert the XML back to .hkx and repack the behbnd."]

@@ -60,6 +60,15 @@ This is a tool that automates a majority of the process to add new havok behavio
 - HKS: adds the `HKB_STATE_` constant, a `g_paramHkbState` entry copied from the original, and `_onUpdate`/`_onActivate`/`_onDeactivate` functions copied from the original's.
 - `eventnameid.txt` / `statenameid.txt`: adds `W_<name>` / `<name>` and updates the `Num` count at the top.
 
+## Batch: NPC Attacks
+**Batch: NPC Attacks…** fills in the generic NPC attack states in one go. The defaults are `Attack3000` → `Attack3000`–`Attack3109` with offsets `a000, a100`; just press **Run** (or **Preview** first).
+- Every missing `AttackNNNN` state is copied from `Attack3000`: CMSG, one clip per offset (named like the source, e.g. `a000_003018_hkx_AutoSet_01`), and a wildcard transition copied from Attack3000's.
+- Existing attack states get any offsets they're missing (e.g. `Attack3050` only had `a100`, so it gets `a000`). Their existing clips are left alone.
+- Events like `W_Attack3018` that are already registered without a state are reused rather than added twice. The same goes for the `.txt` entries.
+- Running it again changes nothing, so it's safe to run on any NPC behavior file.
+- You can change the source state, the number range and the offsets (e.g. `a000, a100, a101`).
+- You still need to add the animations the enemy actually has to its `.anibnd`.
+
 ## After running this tool
 - This tool updates the cmsg_hks file for c0000 edits, but will **NOT** do anything for c9997 edits. You will have to modify c9997.hks yourself if you want to add a new event for NPCs to use.
 - You still need to add the animation to the .anibnd file for both c9997 and c0000.

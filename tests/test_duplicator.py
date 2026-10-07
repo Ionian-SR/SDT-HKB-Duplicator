@@ -14,6 +14,7 @@ SRC = os.path.join(HERE, "..", "src")
 TEMPLATE = os.path.join(SRC, "template")
 sys.path.insert(0, SRC)
 
+from batch import AttackRange  # noqa: E402
 from behavior import Behavior, BehaviorError  # noqa: E402
 from hks_parser import HksScript, to_hkb_state  # noqa: E402
 from id_maps import IdMap  # noqa: E402
@@ -228,6 +229,57 @@ class Npc(ProjectCase):
     def test_hks_requested_without_hks_file(self):
         with self.assertRaises(ProjectError):
             self.project.apply(Request(STATE, "a000_013800_hkx_AutoSet_00", "x1", "a000_000001", new_name="Y", edit_hks=True))
+
+
+class BatchAttacks(ProjectCase):
+    xml = "c9997.xml"
+    hks = ""
+
+    def clips_of(self, b, state_name):
+        state = b.find_by_name(state_name, "hkbStateMachine::StateInfo")[0]
+        return sorted(b.name_of(c) for c in b.pointer_list(b.get_value(state, "generator"), "generators"))
+
+    def test_fills_range_reuses_events_and_is_repeatable(self):
+        before = self.behavior()
+        events_before = before.event_names()
+        _, sm, records_before = self.wildcard_records(before, "Attack3000")
+
+        result = self.project.apply(AttackRange())
+        self.assertTrue(result.written)
+        b = self.behavior()
+        for n in range(3000, 3110):
+            self.assertTrue(b.find_by_name(f"Attack{n}", "hkbStateMachine::StateInfo"), n)
+        # Missing state: copied from Attack3000 with both offsets, using the existing event.
+        self.assertEqual(self.clips_of(b, "Attack3018"),
+                         ["a000_003018_hkx_AutoSet_01", "a100_003018_hkx_AutoSet_01"])
+        self.assertEqual(b.event_names(), events_before)
+        _, _, records = self.wildcard_records(b, "Attack3018")
+        self.assertEqual(len(records), len(records_before) + 64)
+        # Existing state that only had a100 gets a000 too; its own clip is kept.
+        self.assertIn("a100_003050_hkx_AutoSet_00", self.clips_of(b, "Attack3050"))
+        self.assertIn("a000_003050_hkx_AutoSet_01", self.clips_of(b, "Attack3050"))
+        # Windows line endings kept for every line.
+        data = self.read(self.xml)
+        self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))
+
+        again = self.project.apply(AttackRange())
+        self.assertEqual(again.written, [])
+
+    def test_custom_offsets_and_range(self):
+        self.project.apply(AttackRange(start=3018, end=3019, offsets=("a000", "a100", "a101")))
+        b = self.behavior()
+        self.assertEqual(self.clips_of(b, "Attack3019"), [
+            "a000_003019_hkx_AutoSet_01", "a100_003019_hkx_AutoSet_01", "a101_003019_hkx_AutoSet_01",
+        ])
+        self.assertFalse(b.find_by_name("Attack3021", "hkbStateMachine::StateInfo"))
+
+    def test_missing_source_state(self):
+        with self.assertRaises(BehaviorError):
+            self.project.apply(AttackRange(source=2999))
+
+    def test_bad_offsets_are_rejected(self):
+        with self.assertRaises(ProjectError):
+            self.project.apply(AttackRange(offsets=("a000", "b100")))
 
 
 class Backups(ProjectCase):

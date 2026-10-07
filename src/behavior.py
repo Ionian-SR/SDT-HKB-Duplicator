@@ -275,6 +275,9 @@ class Behavior:
     def event_names(self):
         return [s.get("value") for s in self.array_items(self.array(self.string_data, "eventNames"))]
 
+    def _used_event_ids(self):
+        return {int(el.get("value")) for el in self.root.iterfind(".//field[@name='eventId']/integer")}
+
     def _max_int_field(self, *field_names):
         best = -1
         for name in field_names:
@@ -403,8 +406,14 @@ class Behavior:
                 f"A state named '{state_name}' already exists. "
                 "Use 'Add variation' or 'Add branch' to add to it instead."
             )
-        if event_name in self.event_names():
-            raise BehaviorError(f"The event '{event_name}' already exists in this XML.")
+        # An event can already be registered without a state behind it (common
+        # for NPC attacks); reuse it as long as no transition fires it yet.
+        events = self.event_names()
+        reused_event = None
+        if event_name in events:
+            reused_event = events.index(event_name)
+            if reused_event in self._used_event_ids():
+                raise BehaviorError(f"The event '{event_name}' already exists and is used by a transition.")
         state_machine = self.state_machine_of(old_state)
 
         def renamed(oid):
@@ -454,28 +463,38 @@ class Behavior:
 
         self._append_pointer(state_machine, "states", new_state)
 
-        # Event: name + info, same index in both lists.
-        event_index = self._array_append(
-            self.array(self.string_data, "eventNames"), etree.Element("string", value=event_name)
-        )
-        event_infos = self.array(self.graph_data, "eventInfos")
-        info = copy.deepcopy(self.array_items(event_infos)[-1])
-        info.find("field[@name='flags']/integer").set("value", "0")
-        info_index = self._array_append(event_infos, info)
-        if info_index != event_index:
-            raise BehaviorError(
-                f"eventNames ({event_index}) and eventInfos ({info_index}) are out of sync in this XML."
+        if reused_event is not None:
+            event_index = reused_event
+        else:
+            # Event: name + info, same index in both lists.
+            event_index = self._array_append(
+                self.array(self.string_data, "eventNames"), etree.Element("string", value=event_name)
             )
+            event_infos = self.array(self.graph_data, "eventInfos")
+            info = copy.deepcopy(self.array_items(event_infos)[-1])
+            info.find("field[@name='flags']/integer").set("value", "0")
+            info_index = self._array_append(event_infos, info)
+            if info_index != event_index:
+                raise BehaviorError(
+                    f"eventNames ({event_index}) and eventInfos ({info_index}) are out of sync in this XML."
+                )
 
         log.append(f"Created state {state_name} (stateId {new_state_id}) in {self.name_of(state_machine)}.")
         log.extend(f"  new object {oid}: {name}" for oid, name in reversed(created))
-        log.append(f"Added event {event_name} (index {event_index}).")
+        if reused_event is not None:
+            log.append(f"Reused existing event {event_name} (index {event_index}), which had no state yet.")
+        else:
+            log.append(f"Added event {event_name} (index {event_index}).")
         log.append(self._add_wildcard_transition(state_machine, old_state, event_index, new_state_id))
 
         return {
             "log": log,
             "event_name": event_name,
             "source_state_name": old_state_name,
+            "state": new_state,
+            "state_id": new_state_id,
+            "event_index": event_index,
+            "event_reused": reused_event is not None,
         }
 
     def _add_wildcard_transition(self, state_machine, old_state, event_index, new_state_id):
@@ -534,13 +553,19 @@ class Behavior:
         fixups = {}
         if len(serialized) <= len(source_body):
             for ours, theirs in zip(serialized, source_body):
-                if ours != theirs:
-                    fixups.setdefault(ours, theirs)
-        self._formatting = (decl, fixups, source_body[len(serialized):])
+                fixups.setdefault(ours, theirs)
+        crlf = sum(line.endswith(b"\r") for line in source_body) * 2 > len(source_body)
+        self._formatting = (decl, fixups, source_body[len(serialized):], crlf)
 
     def to_bytes(self):
-        decl, fixups, trailing = self._formatting
-        lines = [fixups.get(line, line) for line in self._serialize()]
+        decl, fixups, trailing, crlf = self._formatting
+        lines = []
+        for line in self._serialize():
+            if line in fixups:
+                line = fixups[line]
+            elif crlf and not line.endswith(b"\r"):
+                line += b"\r"  # new or changed line in a CRLF file
+            lines.append(line)
         if decl is not None:
             lines.insert(0, decl)
         return b"\n".join(lines + trailing)

@@ -8,6 +8,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from batch import AttackRange, add_attack_range
 from behavior import Behavior, BehaviorError
 from hks_parser import HksError, HksScript
 from id_maps import IdMap
@@ -117,8 +118,48 @@ class Project:
         if problems:
             raise ProjectError("\n".join(problems))
 
+    def _register_names(self, states, log, outputs):
+        """Add (state name, event name) pairs to statenameid/eventnameid where missing."""
+        for key, index in (("event_id_map", 1), ("state_id_map", 0)):
+            path = self.files[key]
+            if not path:
+                log.append(f"Skipped {key}: not set in the project.")
+                continue
+            id_map = IdMap(path)
+            added, present = [], []
+            for pair in states:
+                name = pair[index]
+                if name in id_map:
+                    present.append(name)
+                else:
+                    added.append(f'{id_map.append(name)} = "{name}"')
+            base = os.path.basename(path)
+            if added:
+                outputs[path] = id_map.to_bytes()
+                log.append(f"{base}: added {', '.join(added)}.")
+            if present:
+                listed = ", ".join(present) if len(present) <= 3 else f"{len(present)} of them"
+                log.append(f"{base} already has {listed}.")
+
+    def _build_batch(self, spec):
+        problems = spec.validate() + [
+            "Missing project file: " + self.files[k] for k in self.missing_files()
+        ]
+        if problems:
+            raise ProjectError("\n".join(problems))
+        behavior = Behavior(self.files["behavior_xml"])
+        log, new_states, changed = add_attack_range(behavior, spec)
+        outputs = {}
+        if new_states:
+            self._register_names(new_states, log, outputs)
+        if changed:
+            outputs[self.files["behavior_xml"]] = behavior.to_bytes()
+        return log, outputs
+
     def _build(self, req):
         """Run the request on fresh in-memory copies. Returns (log, {path: bytes})."""
+        if isinstance(req, AttackRange):
+            return self._build_batch(req)
         self._validate(req)
         behavior = Behavior(self.files["behavior_xml"])
         chains = behavior.find_chains(req.source_clip)
@@ -144,18 +185,7 @@ class Project:
             )
 
         if req.mode == STATE:
-            for key, name in (("event_id_map", result["event_name"]), ("state_id_map", req.new_name)):
-                path = self.files[key]
-                if not path:
-                    log.append(f"Skipped {key}: not set in the project.")
-                    continue
-                id_map = IdMap(path)
-                if name in id_map:
-                    log.append(f"{os.path.basename(path)} already has {name}.")
-                else:
-                    new_id = id_map.append(name)
-                    outputs[path] = id_map.to_bytes()
-                    log.append(f"{os.path.basename(path)}: added {new_id} = \"{name}\".")
+            self._register_names([(req.new_name, result["event_name"])], log, outputs)
             if req.edit_hks:
                 hks = HksScript(self.files["cmsg_script"])
                 log += hks.add_state(req.new_name, result["source_state_name"])
@@ -169,10 +199,12 @@ class Project:
     def preview(self, req):
         log, outputs = self._build(req)
         files = ", ".join(os.path.basename(p) for p in outputs)
-        return log + [f"Will write: {files}"]
+        return log + [f"Will write: {files}" if outputs else "Nothing to change."]
 
     def apply(self, req):
         log, outputs = self._build(req)
+        if not outputs:
+            return Result(log=log + ["Nothing to change; no files written."])
         backup = self.backup(list(outputs))
         for path, data in outputs.items():
             _atomic_write(path, data)
