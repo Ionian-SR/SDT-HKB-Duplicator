@@ -30,19 +30,24 @@ This is a tool that automates a majority of the process to add new havok behavio
    | Option | What it creates | Example |
    |---|---|---|
    | **Add a variation** | A new clip in the same CMSG | `a105_316020` → `a106_316020` (3rd Mortal Draw attack in `GroundSpecialAttackCombo3`) |
-   | **Add a branch to the selector** | A new CMSG + clip next to the existing ones in the selector | `HangMoveB` next to `HangMoveL`/`HangMoveR` |
+   | **Add a branch to the selector** | A new CMSG + clip next to the existing ones in the selector | `HangMoveB_CMSG` next to `HangMoveL_CMSG`/`HangMoveR_CMSG` |
    | **Create a new state** | A copy of the whole state, with its own event `W_<name>`, wildcard transition, `.txt` entries and HKS entries | `AltHangMove` from `HangMove`, `GroundAttackCombo6` from `GroundAttackCombo5` |
 
 3. **Name the new pieces.**
    - **New ClipGen name**: ideally just increment the original ID in some way, e.g. `a000_013810_hkx_AutoSet_00` or `a050_300050`.
    - **New animationName** is filled in from the ClipGen name (e.g. `a000_013810`). Change it if it differs.
-   - **New branch name** (branch only): the new CMSG is named `<branch name>_CMSG`.
+   - **New CMSG name** (branch only): filled in from the source CMSG. Change it the way its siblings differ, e.g. `GroundSpecialAttackHoldMove_F_CMSG_Motion` → `GroundSpecialAttackHoldMove_FL_CMSG_Motion`.
    - **New state name** (new state only): this names the event, state, CMSG and HKS functions. Copied objects are renamed by swapping the old state name for the new one (`HangMove Docking` → `AltHangMove Docking`, `HangMoveL_CMSG` → `AltHangMoveL_CMSG`).
    - **Also update c0000_cmsg.hks**: on by default for c0000 projects.
 4. Click **Preview** to see exactly what will change. Nothing is written yet.
 5. Click **Apply**. A backup is made first, then all files are written together. If anything goes wrong, nothing is written.
 
 ## How each option works
+### Layered states (_Motion / _Anime)
+Some states, like `GroundSpecialAttackHoldMove` or `StandMoveLoop`, play two layers at once (usually `_Motion` and `_Anime`). Each layer has its own selector, and both selectors are driven by the same variable. The tool detects this and makes **the same change in every matching layer**, so the selectors stay lined up:
+- Name things for the layer you picked (e.g. `a106_316511_Motion`, `GroundSpecialAttackHoldMove_FL_CMSG_Motion`). The other layer's names are worked out the same way its existing names differ (`_Motion` → `_Anime`).
+- The matching layer is shown under the path in step 1, and the preview lists everything created in each layer.
+
 ### Add a variation
 - The new clip goes into the *same* CMSG as the clip you picked, so you can no longer add a variation to the wrong state by accident.
 - Make sure to change the aXXX offset. The tool refuses if the CMSG already plays that exact animation. It would also be ideal to follow Fromsoft's naming convention, rather than choose a random ID.
