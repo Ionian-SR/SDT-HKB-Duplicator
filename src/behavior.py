@@ -197,14 +197,33 @@ class Behavior:
             element.tail = last.tail
             last.tail = prev_tail
         else:
-            # Empty array looks like "<array ...> \n        </array>".
-            text = array.text or ""
+            # Empty array looks like "<array ...> <!-- comment -->\n        </array>".
+            last = array[-1] if len(array) else None
+            text = (last.tail if last is not None else array.text) or ""
             closing_indent = text[text.rfind("\n"):] if "\n" in text else "\n"
-            array.text = closing_indent + "  "
+            if last is not None:
+                last.tail = closing_indent + "  "
+            else:
+                array.text = closing_indent + "  "
             element.tail = closing_indent
         array.append(element)
         array.set("count", str(len(Behavior.array_items(array))))
         return len(Behavior.array_items(array)) - 1
+
+    @staticmethod
+    def _clear_array(array):
+        """Remove every item from an <array>, keeping its comment and the closing tag's indentation."""
+        items = Behavior.array_items(array)
+        if not items:
+            return
+        closing = items[-1].tail
+        for el in items:
+            array.remove(el)
+        if len(array):
+            array[-1].tail = closing
+        else:
+            array.text = closing
+        array.set("count", "0")
 
     def _append_pointer(self, owner_oid, field_name, target_oid):
         ptr = etree.Element("pointer", id=target_oid)
@@ -473,13 +492,14 @@ class Behavior:
             "branch_index": index,
         }
 
-    def add_state(self, chain, state_name, clip_name, animation_name):
+    def add_state(self, chain, state_name, clip_name, animation_name, machine=None):
         """Mode 3: copy the whole path into a brand-new state.
 
         Selectors on the path keep only the copied branch; other containers
         keep their other children (shared with the original). Variable
         binding sets, transition effects and other referenced objects are
-        shared, not copied.
+        shared, not copied. The copy goes in the source state's state machine
+        unless ``machine`` names another one.
         """
         old_state = chain.state_info
         old_state_name = self.name_of(old_state)
@@ -490,7 +510,8 @@ class Behavior:
                 "Use 'Add variation' or 'Add branch' to add to it instead."
             )
         reused_event = self._unused_event(event_name)
-        state_machine = self.state_machine_of(old_state)
+        source_machine = self.state_machine_of(old_state)
+        state_machine = machine or source_machine
 
         def renamed(oid):
             name = self.name_of(oid)
@@ -547,7 +568,7 @@ class Behavior:
             log.append(f"Reused existing event {event_name} (index {event_index}), which had no state yet.")
         else:
             log.append(f"Added event {event_name} (index {event_index}).")
-        log.append(self._add_wildcard_transition(state_machine, old_state, event_index, new_state_id))
+        log.append(self._add_wildcard_transition(state_machine, old_state, event_index, new_state_id, source_machine))
 
         return {
             "log": log,
@@ -648,7 +669,7 @@ class Behavior:
 
         return {"results": results, "log": log, "events": events}
 
-    def _add_wildcard_transition(self, state_machine, old_state, event_index, new_state_id):
+    def _add_wildcard_transition(self, state_machine, old_state, event_index, new_state_id, source_machine=None):
         """Let ``event_index`` jump to the new state from anywhere in the state machine.
 
         Copies the source state's wildcard transition (same blend, flags and
@@ -663,7 +684,8 @@ class Behavior:
                 f"fires the new state yet. Add a transition to it manually."
             )
         transitions = self.array(wildcard, "transitions")
-        records = self.array_items(transitions)
+        source_wildcard = self.get_value(source_machine or state_machine, "wildcardTransitions")
+        records = [] if source_wildcard in (None, NULL) else self.array_items(self.array(source_wildcard, "transitions"))
         old_state_id = self.get_value(old_state, "stateId")
 
         def rec_int(rec, name):

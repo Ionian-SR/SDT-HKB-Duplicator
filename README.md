@@ -89,7 +89,8 @@ The third job fills in the jump sets from `JumpAttack3200` to `JumpAttack3292` i
 - Every missing set (e.g. 3260–3262) gets all three states, linked as described in [Jump attacks](#jump-attacks-32xx), with one clip per offset.
 - Existing sets get any offsets they're missing in all three of their states.
 - A set where only some of the three states exist is skipped and listed, so it can be fixed by hand.
-- Needs a complete source set in the file: the stock c9997 has no jump attacks, so add the 3200 set first.
+- **Enemies with no jump attacks** (like the stock c9997) get them built from `Attack3000`: a `JumpAttack` state is added to `Attack_SM` holding a new `JumpAttack_SM`, and the 3200 set is made from Attack3000 with the jump settings (start ends with event type 0, loop clips loop, start's own transition into the loop). The rest of the range is then copied from that set. To build only the first set, set the range to 3200–3202.
+- The wildcard entries copied from Attack3000 are global, so `W_JumpAttack3200` reaches the new machine without any extra wiring.
 
 ## After running this tool
 - This tool updates the cmsg_hks file for c0000 edits, but will **NOT** do anything for c9997 edits. You will have to modify c9997.hks yourself if you want to add a new event for NPCs to use.

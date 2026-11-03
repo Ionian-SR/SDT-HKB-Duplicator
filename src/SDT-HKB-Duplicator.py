@@ -181,7 +181,7 @@ class BatchDialog(tk.Toplevel):
             jump_box, wraplength=420, justify="left", foreground="gray",
             text="Each jump is three linked states: 32X0 start → 32X1 loop → 32X2 landing. Copies the "
                  "source set into every missing set in the range (3200, 3210, ... 3290) and adds missing "
-                 "offsets to the sets that exist.",
+                 "offsets to the sets that exist. Enemies with no jump attacks get them built from Attack3000.",
         ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 6))
         ttk.Label(jump_box, text="Copy from set").grid(row=1, column=0, sticky="w", pady=2)
         ttk.Entry(jump_box, textvariable=self.jump_source_var, width=16).grid(row=1, column=1, columnspan=3, sticky="w")

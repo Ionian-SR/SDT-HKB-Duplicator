@@ -8,7 +8,9 @@ Each job is a small dataclass with ``validate()``, ``describe()`` and
 import re
 from dataclasses import dataclass
 
-from behavior import ANIMATION_NAME_RE, CLIP, CMSG, STATE_INFO, BehaviorError, Chain
+import copy
+
+from behavior import ANIMATION_NAME_RE, CLIP, CMSG, NULL, STATE_INFO, STATE_MACHINE, BehaviorError, Chain
 
 CLIP_NAME_RE = re.compile(r"^(a\d+)_(\d+)(.*)$")
 OFFSET_RE = re.compile(r"^a\d+$")
@@ -250,6 +252,131 @@ def copy_state_set(b, prefix, source_base, new_base, offsets=None):
     return log, names
 
 
+# What a jump state differs in from a plain attack (from a hand-made c9997):
+START_ANIME_END_EVENT = 0   # start CMSG; attacks use 3
+LOOP_CLIP_MODE = 1          # loop clips play looping; attacks play once (0)
+
+
+def _parent_state(b, machine):
+    return next((p for p in b.parents.get(machine, []) if b.type_of(p) == STATE_INFO), None)
+
+
+def build_jump_attacks(b, prefix, base, attack_source, offsets):
+    """Give an enemy without jump attacks its first set, built from a plain attack.
+
+    Adds a ``<prefix>`` state (copied from the attack's parent, e.g.
+    DefualtAttack) holding a new ``<prefix>_SM``, then the start/loop/landing
+    states copied from ``attack_source`` with the few jump-specific settings,
+    and the start state's own transition into the loop. Jump wildcard
+    transitions are global, so nothing else in the graph needs wiring.
+    Returns (log, names).
+    """
+    found = b.find_by_name(attack_source, STATE_INFO)
+    if not found:
+        raise BehaviorError(f"This XML has no jump attacks and no {attack_source} to build them from.")
+    attack = found[0]
+    attack_cmsg = simple_cmsg(b, attack, attack_source)
+    attack_machine = b.state_machine_of(attack)
+    log = []
+
+    existing = b.find_by_name(prefix, STATE_INFO)
+    if existing:
+        machine = b.get_value(existing[0], "generator")
+        if b.type_of(machine) != STATE_MACHINE:
+            raise BehaviorError(f"{prefix} exists but doesn't hold a state machine.")
+        created_machine = False
+    else:
+        template_state = _parent_state(b, attack_machine)
+        if template_state is None:
+            raise BehaviorError(f"Couldn't find the state that holds {b.name_of(attack_machine)}.")
+        parent_machine = b.state_machine_of(template_state)
+        if b.find_by_name(f"{prefix}_SM"):
+            raise BehaviorError(f"{prefix}_SM already exists without a {prefix} state; fix it by hand.")
+
+        # The state machine: a copy of the attack machine with no states and no wildcard entries.
+        wildcard_src = b.get_value(attack_machine, "wildcardTransitions")
+        wildcard = b._clone_object(wildcard_src)
+        b.objects[wildcard.get("id")] = wildcard
+        b._clear_array(b.array(wildcard.get("id"), "transitions"))
+        b._append_object(wildcard)
+        sm = b._clone_object(attack_machine)
+        machine = sm.get("id")
+        b.objects[machine] = sm
+        b.set_value(machine, "name", f"{prefix}_SM")
+        b._clear_array(b.array(machine, "states"))
+        b.set_value(machine, "wildcardTransitions", wildcard.get("id"))
+        b._append_object(sm)
+
+        # The state that holds it, next to the attack machine's own state (e.g. DefualtAttack).
+        holder = b._clone_object(template_state)
+        holder_id = holder.get("id")
+        b.objects[holder_id] = holder
+        b.set_value(holder_id, "name", prefix)
+        b.set_value(holder_id, "generator", machine)
+        siblings = [b.get_value(s, "stateId") for s in b.pointer_list(parent_machine, "states")]
+        b.set_value(holder_id, "stateId", max(siblings) + 1)
+        b._append_object(holder)
+        b._append_pointer(parent_machine, "states", holder_id)
+        b.parents[machine].append(holder_id)
+        created_machine = True
+        log.append(f"Added state {prefix} (stateId {max(siblings) + 1}) to {b.name_of(parent_machine)}, "
+                   f"holding the new {prefix}_SM.")
+
+    by_offset = clips_by_offset(b, attack_cmsg)
+    fallback = by_offset.get(offsets[0], next(iter(by_offset.values())))
+
+    def source_clip(offset):
+        return by_offset.get(offset, fallback)
+
+    states, names = [], {"states": [], "events": []}
+    for k in range(SET_SIZE):
+        number = base + k
+        name = f"{prefix}{number}"
+        planned = [clip_names(b, source_clip(o), o, number) for o in offsets]
+        result = b.add_state(Chain(b, [attack, attack_cmsg, source_clip(offsets[0])]), name, *planned[0],
+                             machine=machine)
+        cmsg = b.get_value(result["state"], "generator")
+        for offset, (clip_name, anim) in zip(offsets[1:], planned[1:]):
+            b.add_variation(Chain(b, [result["state"], cmsg, source_clip(offset)]), clip_name, anim)
+        states.append(result)
+        names["states"].append(name)
+        names["events"].append(result["event_name"])
+        log.append(f"{name}: new state (stateId {result['state_id']}) copied from {attack_source} "
+                   f"with {', '.join(c for c, _ in planned)}.")
+
+    start, loop = states[0], states[1]
+    b.set_value(b.get_value(start["state"], "generator"), "animeEndEventType", START_ANIME_END_EVENT)
+    for clip in b.pointer_list(b.get_value(loop["state"], "generator"), "generators"):
+        b.set_value(clip, "mode", LOOP_CLIP_MODE)
+    if created_machine:
+        b.set_value(machine, "startStateId", start["state_id"])
+
+    # The start state's own transition: its wildcard entry, aimed at the loop, as a normal transition.
+    wildcard = b.get_value(machine, "wildcardTransitions")
+    entry = next(r for r in b.array_items(b.array(wildcard, "transitions"))
+                 if r.find("field[@name='toStateId']/integer").get("value") == str(start["state_id"]))
+    own = b._clone_object(wildcard)
+    own_id = own.get("id")
+    b.objects[own_id] = own
+    records = b.array(own_id, "transitions")
+    b._clear_array(records)
+    record = copy.deepcopy(entry)
+    event_name = f"{prefix}{base}_to_{prefix}{base + 1}"
+    event_index, reused = b._ensure_event(event_name)
+    record.find("field[@name='eventId']/integer").set("value", str(event_index))
+    record.find("field[@name='toStateId']/integer").set("value", str(loop["state_id"]))
+    record.find("field[@name='flags']/integer").set("value", "0")
+    b._array_append(records, record)
+    b._append_object(own)
+    b.set_value(start["state"], "transitions", own_id)
+    b.parents[own_id].append(start["state"])
+    names["events"].append(event_name)
+    log.append(f"{prefix}{base}: own transition {event_name} (#{event_index}, "
+               f"{'reused' if reused else 'new'} event) → {prefix}{base + 1}; start CMSG ends with event type "
+               f"{START_ANIME_END_EVENT}, {prefix}{base + 1} clips loop.")
+    return log, names
+
+
 @dataclass
 class JumpAttackRange:
     """JumpAttack3200-3292: start/loop/landing sets at every ten, one clip per offset."""
@@ -259,6 +386,7 @@ class JumpAttackRange:
     start: int = 3200
     end: int = 3292
     offsets: tuple = ("a000", "a100")
+    attack_source: str = "Attack3000"   # used only when the enemy has no jump attacks at all
 
     def bases(self):
         return list(range(self.start // 10 * 10, self.end // 10 * 10 + 1, 10))
@@ -280,8 +408,15 @@ def add_jump_range(b, spec):
     """Make sure every jump set in the range exists with a clip per offset in each of its three states."""
     source_name = f"{spec.prefix}{spec.source}"
     sources = state_set(b, spec.prefix, spec.source)
+    built, names = [], {"states": [], "events": []}
     if None in sources:
-        raise BehaviorError(f"This XML has no complete {source_name}-{spec.source + SET_SIZE - 1} set to copy from.")
+        if any(sources):
+            raise BehaviorError(f"The {source_name} set is incomplete; fix it before copying from it.")
+        others = [base for base in spec.bases() if None not in state_set(b, spec.prefix, base)]
+        if others:
+            raise BehaviorError(f"This XML has no {source_name} set; copy from {spec.prefix}{others[0]} instead.")
+        built, names = build_jump_attacks(b, spec.prefix, spec.source, spec.attack_source, spec.offsets)
+        sources = state_set(b, spec.prefix, spec.source)
     by_offset = [clips_by_offset(b, simple_cmsg(b, s, b.name_of(s))) for s in sources]
 
     def source_for(k):
@@ -289,11 +424,17 @@ def add_jump_range(b, spec):
         return lambda offset: by_offset[k].get(offset, fallback)
 
     created, extended, complete, skipped = [], [], [], []
-    detail, names = [], {"states": [], "events": []}
+    detail = []
+    if built:
+        created.append(f"{source_name}-{spec.source + SET_SIZE - 1}")
+        detail += [f"This enemy had no jump attacks; built the first set from {spec.attack_source}:"]
+        detail += [f"  {line}" for line in built]
     for base in spec.bases():
         label = f"{spec.prefix}{base}-{base + SET_SIZE - 1}"
         states = state_set(b, spec.prefix, base)
         if None not in states:
+            if built and base == spec.source:
+                continue
             added = []
             try:
                 for k, state in enumerate(states):

@@ -338,12 +338,9 @@ class BindPlaybackSpeed(ProjectCase):
         self.assertEqual(self.behavior().get_value(clip, "variableBindingSet"), other)
 
 
-class JumpAttacks(ProjectCase):
-    """3200-3292: 32X0 start → (own transition) → 32X1 loop, 32X2 landing; the fixture lacks 3260-3282."""
-
+class JumpHelpers:
     xml = "c9997.xml"
     hks = ""
-    fixture = "c9997_jump.xml"
 
     def state(self, b, n):
         found = b.find_by_name(f"JumpAttack{n}", "hkbStateMachine::StateInfo")
@@ -367,6 +364,12 @@ class JumpAttacks(ProjectCase):
         loop_id = b.get_value(self.state(b, base + 1), "stateId")
         self.assertEqual(records, [(f"JumpAttack{base}_to_JumpAttack{base + 1}", loop_id)])
         return own
+
+
+class JumpAttacks(JumpHelpers, ProjectCase):
+    """3200-3292: 32X0 start → (own transition) → 32X1 loop, 32X2 landing; the fixture lacks 3260-3282."""
+
+    fixture = "c9997_jump.xml"
 
     def test_single_duplicate_copies_whole_set(self):
         before = self.behavior()
@@ -413,13 +416,49 @@ class JumpAttacks(ProjectCase):
             self.project.apply(JumpAttackRange(source=3260))
 
 
-class JumpAttacksMissing(ProjectCase):
-    xml = "c9997.xml"
-    hks = ""
+class JumpAttacksFromScratch(JumpHelpers, ProjectCase):
+    """The stock c9997 has no jump attacks; the batch builds them from Attack3000."""
 
-    def test_template_without_jump_states(self):
+    def test_builds_jump_machine_and_all_sets(self):
+        before = self.behavior()
+        self.assertIsNone(self.state(before, 3200))
+        result = self.project.apply(JumpAttackRange())
+        self.assertTrue(result.written)
+        b = self.behavior()
+        holder = b.find_by_name("JumpAttack", "hkbStateMachine::StateInfo")[0]
+        machine = b.get_value(holder, "generator")
+        self.assertEqual(b.name_of(machine), "JumpAttack_SM")
+        self.assertIn(holder, b.pointer_list(b.state_machine_of(holder), "states"))
+        self.assertEqual(b.get_value(machine, "startStateId"), b.get_value(self.state(b, 3200), "stateId"))
+        for base in range(3200, 3300, 10):
+            self.assert_set_linked(b, base)
+            for k in range(3):
+                self.assertEqual(b.state_machine_of(self.state(b, base + k)), machine)
+        # Jump-specific settings: start ends like the hand-made one, loop clips loop.
+        start_cmsg = b.get_value(self.state(b, 3200), "generator")
+        self.assertEqual(b.get_value(start_cmsg, "animeEndEventType"), 0)
+        self.assertEqual({mode for _, mode in self.clips(b, 3201)}, {1})
+        self.assertEqual({mode for _, mode in self.clips(b, 3202)}, {0})
+        # Wildcard entries are global so the jump can start from outside JumpAttack_SM.
+        wildcard = b.get_value(machine, "wildcardTransitions")
+        flags = {r.find("field[@name='flags']/integer").get("value")
+                 for r in b.array_items(b.array(wildcard, "transitions"))}
+        self.assertEqual(flags, {"3584"})
+        # The attacks it was built from are untouched.
+        def attack_states(beh):
+            attack = beh.find_by_name("Attack3000", "hkbStateMachine::StateInfo")[0]
+            return len(beh.pointer_list(beh.state_machine_of(attack), "states"))
+        self.assertEqual(attack_states(b), attack_states(before))
+        self.assertEqual(self.project.apply(JumpAttackRange()).written, [])
+
+    def test_built_set_can_be_duplicated(self):
+        self.project.apply(JumpAttackRange(end=3202))
+        self.project.apply(Request(STATE, "a000_003201_hkx_AutoSet_01", "", "", new_name="JumpAttack3290", group=True))
+        self.assert_set_linked(self.behavior(), 3290)
+
+    def test_needs_an_attack_to_build_from(self):
         with self.assertRaises(BehaviorError):
-            self.project.apply(JumpAttackRange())
+            self.project.apply(JumpAttackRange(attack_source="Attack9999"))
 
 
 class Backups(ProjectCase):
