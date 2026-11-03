@@ -60,6 +60,13 @@ This is a tool that automates a majority of the process to add new havok behavio
 - HKS: adds the `HKB_STATE_` constant, a `g_paramHkbState` entry copied from the original, and `_onUpdate`/`_onActivate`/`_onDeactivate` functions copied from the original's.
 - `eventnameid.txt` / `statenameid.txt`: adds `W_<name>` / `<name>` and updates the `Num` count at the top.
 
+### Jump attacks (32XX)
+NPC jump attacks are sets of three linked states: **32X0** start → **32X1** loop → **32X2** landing, at every ten from 3200 to 3290. The start state has its own transition (`JumpAttack32X0_to_JumpAttack32X1`) into the loop; the landing is fired with `W_JumpAttack32X2`.
+- Pick any clip of a jump set (start, loop or landing) and choose **Create a new state**. **Copy the whole jump set** is on by default.
+- Type the new start state, e.g. `JumpAttack3260`. The loop and landing become `JumpAttack3261` and `JumpAttack3262`.
+- Clips are named like the originals with the number swapped (`a000_003200_hkx_AutoSet_00` → `a000_003260_hkx_AutoSet_00`), and the loop clips stay looping.
+- The new start state gets its own transition into the **new** loop. The original set is untouched.
+
 ## Batch: NPC Attacks
 **Batch: NPC Attacks…** fills in the generic NPC attack states in one go. The defaults are `Attack3000` → `Attack3000`–`Attack3109` with offsets `a000, a100`; just press **Run** (or **Preview** first).
 - Every missing `AttackNNNN` state is copied from `Attack3000`: CMSG, one clip per offset (named like the source, e.g. `a000_003018_hkx_AutoSet_01`), and a wildcard transition copied from Attack3000's.
@@ -76,6 +83,13 @@ The second job in the same dialog binds every attack clip's `playbackSpeed` to t
 - Clips that already use a different binding set are left alone and listed in the log, since replacing it would drop whatever that set binds.
 - Attacks added afterwards by **Add missing attacks** are copied from Attack3000, so they come out already bound.
 - Set the speed from HKS with the variable name, e.g. `SetVariable("AnimationPlaybackSpeed", 1.2)`.
+
+### Add missing jump attacks
+The third job fills in the jump sets from `JumpAttack3200` to `JumpAttack3292` in one go, copied from the `JumpAttack3200` set.
+- Every missing set (e.g. 3260–3262) gets all three states, linked as described in [Jump attacks](#jump-attacks-32xx), with one clip per offset.
+- Existing sets get any offsets they're missing in all three of their states.
+- A set where only some of the three states exist is skipped and listed, so it can be fixed by hand.
+- Needs a complete source set in the file: the stock c9997 has no jump attacks, so add the 3200 set first.
 
 ## After running this tool
 - This tool updates the cmsg_hks file for c0000 edits, but will **NOT** do anything for c9997 edits. You will have to modify c9997.hks yourself if you want to add a new event for NPCs to use.

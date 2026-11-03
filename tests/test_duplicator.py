@@ -12,9 +12,10 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
 TEMPLATE = os.path.join(SRC, "template")
+FIXTURES = os.path.join(HERE, "fixtures")
 sys.path.insert(0, SRC)
 
-from batch import AttackRange, PlaybackSpeedBinding  # noqa: E402
+from batch import AttackRange, JumpAttackRange, PlaybackSpeedBinding  # noqa: E402
 from behavior import Behavior, BehaviorError  # noqa: E402
 from hks_parser import HksScript, to_hkb_state  # noqa: E402
 from id_maps import IdMap  # noqa: E402
@@ -29,6 +30,8 @@ class ProjectCase(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         for name in os.listdir(TEMPLATE):
             shutil.copy(os.path.join(TEMPLATE, name), self.dir)
+        if getattr(self, "fixture", None):
+            shutil.copy(os.path.join(FIXTURES, self.fixture), os.path.join(self.dir, self.xml))
         p = lambda n: os.path.join(self.dir, n) if n else ""  # noqa: E731
         self.project = Project.create(
             p("project.json"), "Test", p(self.xml), p(self.hks), p("eventnameid.txt"), p("statenameid.txt")
@@ -333,6 +336,90 @@ class BindPlaybackSpeed(ProjectCase):
         result = self.project.apply(PlaybackSpeedBinding())
         self.assertTrue(any("WARNING" in line and "a000_003001_hkx_AutoSet_01" in line for line in result.log))
         self.assertEqual(self.behavior().get_value(clip, "variableBindingSet"), other)
+
+
+class JumpAttacks(ProjectCase):
+    """3200-3292: 32X0 start → (own transition) → 32X1 loop, 32X2 landing; the fixture lacks 3260-3282."""
+
+    xml = "c9997.xml"
+    hks = ""
+    fixture = "c9997_jump.xml"
+
+    def state(self, b, n):
+        found = b.find_by_name(f"JumpAttack{n}", "hkbStateMachine::StateInfo")
+        return found[0] if found else None
+
+    def own_transitions(self, b, n):
+        own = b.get_value(self.state(b, n), "transitions")
+        if own == "object0":
+            return own, []
+        events = b.event_names()
+        return own, [(events[int(r.find("field[@name='eventId']/integer").get("value"))],
+                      int(r.find("field[@name='toStateId']/integer").get("value")))
+                     for r in b.array_items(b.array(own, "transitions"))]
+
+    def clips(self, b, n):
+        cmsg = b.get_value(self.state(b, n), "generator")
+        return [(b.name_of(c), b.get_value(c, "mode")) for c in b.pointer_list(cmsg, "generators")]
+
+    def assert_set_linked(self, b, base):
+        own, records = self.own_transitions(b, base)
+        loop_id = b.get_value(self.state(b, base + 1), "stateId")
+        self.assertEqual(records, [(f"JumpAttack{base}_to_JumpAttack{base + 1}", loop_id)])
+        return own
+
+    def test_single_duplicate_copies_whole_set(self):
+        before = self.behavior()
+        original_own = self.assert_set_linked(before, 3200)
+        result = self.project.apply(Request(
+            STATE, "a000_003200_hkx_AutoSet_00", "", "", new_name="JumpAttack3260", group=True,
+        ))
+        self.assertTrue(result.written)
+        b = self.behavior()
+        new_own = self.assert_set_linked(b, 3260)
+        self.assertNotEqual(new_own, original_own, "the copy needs its own transition list")
+        self.assertEqual(self.assert_set_linked(b, 3200), original_own)
+        self.assertEqual(self.clips(b, 3261), [("a000_003261_hkx_AutoSet_00", 1)])  # still looping
+        self.assertEqual(self.clips(b, 3262), [("a000_003262_hkx_AutoSet_00", 0)])
+        machine = b.state_machine_of(self.state(b, 3200))
+        for n in (3260, 3261, 3262):
+            self.assertIn(self.state(b, n), b.pointer_list(machine, "states"))
+        # Registered-but-unused events are reused, nothing is added.
+        self.assertEqual(b.event_names(), before.event_names())
+
+    def test_set_name_must_be_the_start_state(self):
+        with self.assertRaises(ProjectError):
+            self.project.apply(Request(STATE, "a000_003200_hkx_AutoSet_00", "", "", new_name="JumpAttack3261", group=True))
+
+    def test_group_needs_a_jump_set(self):
+        with self.assertRaises(ProjectError):
+            self.project.apply(Request(STATE, "a000_003000_hkx_AutoSet_01", "", "", new_name="Attack3999", group=True))
+
+    def test_batch_fills_missing_sets_and_offsets(self):
+        result = self.project.apply(JumpAttackRange())
+        self.assertTrue(result.written)
+        b = self.behavior()
+        for base in range(3200, 3300, 10):
+            self.assert_set_linked(b, base)
+            for k in range(3):
+                offsets = sorted(name[:4] for name, _ in self.clips(b, base + k))
+                self.assertEqual(offsets, ["a000", "a100"], base + k)
+        self.assertEqual({mode for _, mode in self.clips(b, 3271)}, {1})
+        self.assertIsNone(self.state(b, 3300))
+        self.assertEqual(self.project.apply(JumpAttackRange()).written, [])
+
+    def test_batch_needs_a_source_set(self):
+        with self.assertRaises(BehaviorError):
+            self.project.apply(JumpAttackRange(source=3260))
+
+
+class JumpAttacksMissing(ProjectCase):
+    xml = "c9997.xml"
+    hks = ""
+
+    def test_template_without_jump_states(self):
+        with self.assertRaises(BehaviorError):
+            self.project.apply(JumpAttackRange())
 
 
 class Backups(ProjectCase):

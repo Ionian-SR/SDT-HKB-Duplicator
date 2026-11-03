@@ -1,8 +1,8 @@
 """Batch jobs: one-click runs built on the single duplicate operations.
 
 Each job is a small dataclass with ``validate()``, ``describe()`` and
-``run(behavior)`` returning (log, new_states, changed); new_states are
-(state name, event name) pairs that still need .txt entries.
+``run(behavior)`` returning (log, names, changed); names is
+{"states": [...], "events": [...]} for the .txt files.
 """
 
 import re
@@ -12,6 +12,57 @@ from behavior import ANIMATION_NAME_RE, CLIP, CMSG, STATE_INFO, BehaviorError, C
 
 CLIP_NAME_RE = re.compile(r"^(a\d+)_(\d+)(.*)$")
 OFFSET_RE = re.compile(r"^a\d+$")
+
+
+def offset_of(b, clip):
+    m = ANIMATION_NAME_RE.match(b.get_value(clip, "animationName") or "")
+    return m.group(1) if m else None
+
+
+def clips_by_offset(b, cmsg):
+    """{offset: first clip with that offset} for a CMSG, in the CMSG's order."""
+    found = {}
+    for clip in b.pointer_list(cmsg, "generators"):
+        if clip in b.objects and b.type_of(clip) == CLIP:
+            found.setdefault(offset_of(b, clip), clip)
+    return found
+
+
+def clip_names(b, source_clip, offset, number):
+    """Clip name and animationName for ``number``, following the source clip's naming (e.g. _hkx_AutoSet_01)."""
+    anim = ANIMATION_NAME_RE.match(b.get_value(source_clip, "animationName") or "")
+    anim_width = len(anim.group(2)) if anim else 6
+    m = CLIP_NAME_RE.match(b.name_of(source_clip))
+    width, suffix = (len(m.group(2)), m.group(3)) if m else (anim_width, "")
+    return f"{offset}_{number:0{width}d}{suffix}", f"{offset}_{number:0{anim_width}d}"
+
+
+def simple_cmsg(b, state, label):
+    cmsg = b.get_value(state, "generator")
+    if b.type_of(cmsg) != CMSG:
+        raise BehaviorError(f"{label} isn't laid out as StateInfo → CMSG → clips, so it can't be copied.")
+    if not clips_by_offset(b, cmsg):
+        raise BehaviorError(f"{label} has no clips to copy.")
+    return cmsg
+
+
+def add_missing_offsets(b, state, number, offsets, source_for):
+    """Add a clip for each offset the state's CMSG doesn't have yet.
+
+    Returns the offsets added, or raises BehaviorError (nothing changed) if a
+    needed clip name is already taken somewhere else.
+    """
+    cmsg = b.get_value(state, "generator")
+    if b.type_of(cmsg) != CMSG:
+        raise BehaviorError("it isn't laid out as StateInfo → CMSG → clips")
+    missing = [o for o in offsets if o not in clips_by_offset(b, cmsg)]
+    planned = [(o, *clip_names(b, source_for(o), o, number)) for o in missing]
+    clashes = [name for _, name, _ in planned if b.find_by_name(name, CLIP)]
+    if clashes:
+        raise BehaviorError(f"clip(s) already used elsewhere: {', '.join(clashes)}")
+    for offset, name, anim in planned:
+        b.add_variation(Chain(b, [state, cmsg, source_for(offset)]), name, anim)
+    return missing
 
 
 @dataclass
@@ -55,92 +106,54 @@ def add_attack_range(b, spec):
     practically every enemy), reusing their event if it's already
     registered. Existing states only get the offsets they're missing, so
     running this twice changes nothing the second time.
-
-    Returns (log, new_states, changed) where new_states is a list of
-    (state name, event name) for the .txt files.
     """
     source_name = f"{spec.prefix}{spec.source}"
     found = b.find_by_name(source_name, STATE_INFO)
     if not found:
         raise BehaviorError(f"This XML has no {source_name} state to copy from.")
     src_state = found[0]
-    src_cmsg = b.get_value(src_state, "generator")
-    if b.type_of(src_cmsg) != CMSG:
-        raise BehaviorError(f"{source_name} isn't laid out as StateInfo → CMSG → clips, so it can't be batch-copied.")
-    src_clips = [c for c in b.pointer_list(src_cmsg, "generators") if c in b.objects and b.type_of(c) == CLIP]
-    if not src_clips:
-        raise BehaviorError(f"{source_name}_CMSG has no clips to copy.")
-
-    # Copy each offset from the source clip with the same offset when there is one.
-    by_offset = {}
-    for clip in src_clips:
-        m = ANIMATION_NAME_RE.match(b.get_value(clip, "animationName") or "")
-        if m:
-            by_offset.setdefault(m.group(1), clip)
-    fallback = by_offset.get(spec.offsets[0], src_clips[0])
+    src_cmsg = simple_cmsg(b, src_state, source_name)
+    by_offset = clips_by_offset(b, src_cmsg)
+    fallback = by_offset.get(spec.offsets[0], next(iter(by_offset.values())))
 
     def source_clip(offset):
         return by_offset.get(offset, fallback)
 
-    def names(offset, number):
-        """Clip name and animationName, following the source clip's naming (e.g. _hkx_AutoSet_01)."""
-        src = source_clip(offset)
-        anim = ANIMATION_NAME_RE.match(b.get_value(src, "animationName") or "")
-        anim_width = len(anim.group(2)) if anim else 6
-        m = CLIP_NAME_RE.match(b.name_of(src))
-        width, suffix = (len(m.group(2)), m.group(3)) if m else (anim_width, "")
-        return f"{offset}_{number:0{width}d}{suffix}", f"{offset}_{number:0{anim_width}d}"
-
-    def offset_of(clip):
-        m = ANIMATION_NAME_RE.match(b.get_value(clip, "animationName") or "")
-        return m.group(1) if m else None
-
     created, extended, complete, skipped = [], [], [], []
-    detail, new_states = [], []
+    detail, names = [], {"states": [], "events": []}
 
     for number in range(spec.start, spec.end + 1):
         name = f"{spec.prefix}{number}"
         states = b.find_by_name(name, STATE_INFO)
 
         if states:
-            state = states[0]
-            cmsg = b.get_value(state, "generator")
-            if b.type_of(cmsg) != CMSG:
+            try:
+                added = add_missing_offsets(b, states[0], number, spec.offsets, source_clip)
+            except BehaviorError as e:
                 skipped.append(name)
-                detail.append(f"{name}: skipped, it isn't laid out as StateInfo → CMSG → clips.")
+                detail.append(f"{name}: skipped, {e}.")
                 continue
-            have = {offset_of(c) for c in b.pointer_list(cmsg, "generators") if c in b.objects}
-            missing = [o for o in spec.offsets if o not in have]
-            if not missing:
+            if added:
+                extended.append(name)
+                detail.append(f"{name}: added {', '.join(added)} to the existing state.")
+            else:
                 complete.append(name)
-                continue
-            clashes = [n for o in missing for n in [names(o, number)[0]] if b.find_by_name(n, CLIP)]
-            if clashes:
-                skipped.append(name)
-                detail.append(f"{name}: skipped, clip(s) already used elsewhere: {', '.join(clashes)}.")
-                continue
-            for offset in missing:
-                clip_name, anim = names(offset, number)
-                b.add_variation(Chain(b, [state, cmsg, source_clip(offset)]), clip_name, anim)
-            extended.append(name)
-            detail.append(f"{name}: added {', '.join(missing)} to the existing state.")
             continue
 
-        clip_names = [names(o, number)[0] for o in spec.offsets]
-        taken = [n for n in clip_names + [f"{name}_CMSG"] if b.find_by_name(n)]
+        planned = [clip_names(b, source_clip(o), o, number) for o in spec.offsets]
+        taken = [n for n in [c for c, _ in planned] + [f"{name}_CMSG"] if b.find_by_name(n)]
         if taken:
             skipped.append(name)
             detail.append(f"{name}: skipped, name(s) already used: {', '.join(taken)}.")
             continue
         first = spec.offsets[0]
-        clip_name, anim = names(first, number)
-        result = b.add_state(Chain(b, [src_state, src_cmsg, source_clip(first)]), name, clip_name, anim)
+        result = b.add_state(Chain(b, [src_state, src_cmsg, source_clip(first)]), name, *planned[0])
         new_cmsg = b.get_value(result["state"], "generator")
-        for offset in spec.offsets[1:]:
-            clip_name, anim = names(offset, number)
+        for offset, (clip_name, anim) in zip(spec.offsets[1:], planned[1:]):
             b.add_variation(Chain(b, [result["state"], new_cmsg, source_clip(offset)]), clip_name, anim)
         created.append(name)
-        new_states.append((name, result["event_name"]))
+        names["states"].append(name)
+        names["events"].append(result["event_name"])
         event = "reused event" if result["event_reused"] else "new event"
         detail.append(
             f"{name}: new state (stateId {result['state_id']}, {event} {result['event_name']} "
@@ -153,7 +166,173 @@ def add_attack_range(b, spec):
         f"  {len(created)} new states, {len(extended)} existing states got missing offsets, "
         f"{len(complete)} already complete, {len(skipped)} skipped.",
     ] + detail
-    return log, new_states, bool(created or extended)
+    return log, names, bool(created or extended)
+
+
+# --------------------------------------------------------------- jump attacks
+# A jump attack is three linked states: 32X0 start (its own transition
+# "JumpAttack32X0_to_JumpAttack32X1" leads to the loop), 32X1 loop and
+# 32X2 landing. Groups start at every ten: 3200, 3210, ... 3290.
+
+SET_SIZE = 3
+
+
+def state_set(b, prefix, base):
+    """The three states of the set starting at ``base``, or None for any that are missing."""
+    return [next(iter(b.find_by_name(f"{prefix}{base + k}", STATE_INFO)), None) for k in range(SET_SIZE)]
+
+
+def set_base(state_name, prefix="JumpAttack"):
+    """3260 for 'JumpAttack3261'; None if the name isn't part of a jump set."""
+    m = re.match(rf"^{re.escape(prefix)}(\d+)$", state_name or "")
+    if not m or int(m.group(1)) % 10 >= SET_SIZE:
+        return None
+    return int(m.group(1)) // 10 * 10
+
+
+def is_jump_set(b, state):
+    """True if ``state`` is part of a complete start/loop/landing set whose start leads to its loop."""
+    base = set_base(b.name_of(state))
+    if base is None:
+        return False
+    prefix = re.match(r"^(\D+)", b.name_of(state)).group(1)
+    states = state_set(b, prefix, base)
+    if None in states:
+        return False
+    own = b.get_value(states[0], "transitions")
+    if own in (None, "object0"):
+        return False
+    loop_id = b.get_value(states[1], "stateId")
+    targets = [int(r.find("field[@name='toStateId']/integer").get("value"))
+               for r in b.array_items(b.array(own, "transitions"))]
+    return loop_id in targets
+
+
+def copy_state_set(b, prefix, source_base, new_base, offsets=None):
+    """Copy the start/loop/landing set at ``source_base`` to ``new_base``.
+
+    Clips are renamed by number (a000_003200_hkx_AutoSet_00 → a000_003260_…).
+    With ``offsets`` each new state gets exactly those offsets; without, it
+    gets the same offsets its source state has. Returns (log, names).
+    """
+    sources = state_set(b, prefix, source_base)
+    if None in sources:
+        missing = [f"{prefix}{source_base + k}" for k, s in enumerate(sources) if s is None]
+        raise BehaviorError(f"Can't copy the {prefix}{source_base} set: missing {', '.join(missing)}.")
+    cmsgs = [simple_cmsg(b, s, b.name_of(s)) for s in sources]
+    by_offset = [clips_by_offset(b, c) for c in cmsgs]
+    wanted = [list(offsets) if offsets else list(o) for o in by_offset]
+
+    def source_for(k):
+        fallback = by_offset[k].get(wanted[k][0], next(iter(by_offset[k].values())))
+        return lambda offset: by_offset[k].get(offset, fallback)
+
+    new_names = [f"{prefix}{new_base + k}" for k in range(SET_SIZE)]
+    planned = [[clip_names(b, source_for(k)(o), o, new_base + k) for o in wanted[k]] for k in range(SET_SIZE)]
+    taken = [n for k in range(SET_SIZE) for n in [new_names[k], f"{new_names[k]}_CMSG"] + [c for c, _ in planned[k]]
+             if b.find_by_name(n)]
+    if taken:
+        raise BehaviorError(f"name(s) already used: {', '.join(taken)}")
+
+    chains = [Chain(b, [sources[k], cmsgs[k], source_for(k)(wanted[k][0])]) for k in range(SET_SIZE)]
+    group = b.add_state_group(chains, new_names, [p[0][0] for p in planned], [p[0][1] for p in planned])
+    log = []
+    for k, result in enumerate(group["results"]):
+        new_cmsg = b.get_value(result["state"], "generator")
+        for offset, (clip_name, anim) in zip(wanted[k][1:], planned[k][1:]):
+            b.add_variation(Chain(b, [result["state"], new_cmsg, source_for(k)(offset)]), clip_name, anim)
+        event = "reused event" if result["event_reused"] else "new event"
+        log.append(f"{new_names[k]}: new state (stateId {result['state_id']}, {event} {result['event_name']} "
+                   f"#{result['event_index']}) with {', '.join(c for c, _ in planned[k])}.")
+        log += [f"  {line}" for line in result["log"] if "WARNING" in line]
+    log += group["log"]
+    names = {"states": new_names, "events": [r["event_name"] for r in group["results"]] + group["events"]}
+    return log, names
+
+
+@dataclass
+class JumpAttackRange:
+    """JumpAttack3200-3292: start/loop/landing sets at every ten, one clip per offset."""
+
+    prefix: str = "JumpAttack"
+    source: int = 3200
+    start: int = 3200
+    end: int = 3292
+    offsets: tuple = ("a000", "a100")
+
+    def bases(self):
+        return list(range(self.start // 10 * 10, self.end // 10 * 10 + 1, 10))
+
+    def validate(self):
+        problems = AttackRange(self.prefix, self.source, self.start, self.end, self.offsets).validate()
+        if self.source % 10:
+            problems.append(f"The source set should start at a round number like 3200, not {self.source}.")
+        return problems
+
+    def describe(self):
+        return f"{self.prefix}{self.start}-{self.prefix}{self.end} jump sets ({', '.join(self.offsets)})"
+
+    def run(self, behavior):
+        return add_jump_range(behavior, self)
+
+
+def add_jump_range(b, spec):
+    """Make sure every jump set in the range exists with a clip per offset in each of its three states."""
+    source_name = f"{spec.prefix}{spec.source}"
+    sources = state_set(b, spec.prefix, spec.source)
+    if None in sources:
+        raise BehaviorError(f"This XML has no complete {source_name}-{spec.source + SET_SIZE - 1} set to copy from.")
+    by_offset = [clips_by_offset(b, simple_cmsg(b, s, b.name_of(s))) for s in sources]
+
+    def source_for(k):
+        fallback = by_offset[k].get(spec.offsets[0], next(iter(by_offset[k].values())))
+        return lambda offset: by_offset[k].get(offset, fallback)
+
+    created, extended, complete, skipped = [], [], [], []
+    detail, names = [], {"states": [], "events": []}
+    for base in spec.bases():
+        label = f"{spec.prefix}{base}-{base + SET_SIZE - 1}"
+        states = state_set(b, spec.prefix, base)
+        if None not in states:
+            added = []
+            try:
+                for k, state in enumerate(states):
+                    for offset in add_missing_offsets(b, state, base + k, spec.offsets, source_for(k)):
+                        added.append(f"{offset} to {spec.prefix}{base + k}")
+            except BehaviorError as e:
+                skipped.append(label)
+                detail.append(f"{label}: stopped, {e}.")
+                if added:
+                    extended.append(label)
+                continue
+            if added:
+                extended.append(label)
+                detail.append(f"{label}: added {', '.join(added)}.")
+            else:
+                complete.append(label)
+            continue
+        if any(states):
+            have = [f"{spec.prefix}{base + k}" for k, s in enumerate(states) if s]
+            skipped.append(label)
+            detail.append(f"{label}: skipped, only part of the set exists ({', '.join(have)}).")
+            continue
+        try:
+            lines, new = copy_state_set(b, spec.prefix, spec.source, base, spec.offsets)
+        except BehaviorError as e:
+            skipped.append(label)
+            detail.append(f"{label}: skipped, {e}.")
+            continue
+        created.append(label)
+        detail += lines
+        names["states"] += new["states"]
+        names["events"] += new["events"]
+
+    log = [
+        f"Batch {spec.describe()} from {source_name}:",
+        f"  {len(created)} new sets, {len(extended)} existing sets got missing offsets, "
+        f"{len(complete)} already complete, {len(skipped)} skipped.",
+    ] + detail
+    return log, names, bool(created or extended)
 
 
 # Float variable, 0-999, starting at 1.0 (0x3F800000), as in the hand-made example.
@@ -201,7 +380,7 @@ def bind_playback_speed(b, spec):
         if found:
             states.append(found[0])
     if not states:
-        return [f"No {spec.prefix}{spec.start}-{spec.end} states in this XML; nothing to bind."], [], False
+        return [f"No {spec.prefix}{spec.start}-{spec.end} states in this XML; nothing to bind."], {}, False
 
     log = [f"Batch: bind {spec.describe()}:"]
     index, created_var = b.ensure_variable(spec.variable, VARIABLE_TYPE_REAL, 0, 999, ONE_AS_WORD)
@@ -234,4 +413,4 @@ def bind_playback_speed(b, spec):
                    + ", ".join(conflicts))
     if bound_names:
         log.append("  Bound: " + ", ".join(bound_names))
-    return log, [], bool(bound or created_var or created_set)
+    return log, {}, bool(bound or created_var or created_set)

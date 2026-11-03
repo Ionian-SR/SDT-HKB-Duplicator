@@ -7,7 +7,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from batch import AttackRange, PlaybackSpeedBinding
+from batch import AttackRange, JumpAttackRange, PlaybackSpeedBinding, is_jump_set, set_base
 from project import BRANCH, STATE, VARIATION, Project, Request, friendly_error
 
 APP_TITLE = "SDT HKB Duplicator"
@@ -124,7 +124,7 @@ class NewProjectDialog(tk.Toplevel):
 
 
 class BatchDialog(tk.Toplevel):
-    """One-click NPC attack jobs that share a state range."""
+    """One-click NPC jobs: attacks and speed binding share the attack range; jump attacks have their own."""
 
     def __init__(self, app):
         super().__init__(app.root)
@@ -132,16 +132,20 @@ class BatchDialog(tk.Toplevel):
         self.title("Batch: NPC Attacks")
         self.transient(app.root)
         self.resizable(False, False)
-        defaults, speed = AttackRange(), PlaybackSpeedBinding()
+        defaults, speed, jump = AttackRange(), PlaybackSpeedBinding(), JumpAttackRange()
         self.source_var = tk.StringVar(value=f"{defaults.prefix}{defaults.source}")
         self.start_var = tk.StringVar(value=str(defaults.start))
         self.end_var = tk.StringVar(value=str(defaults.end))
         self.offsets_var = tk.StringVar(value=", ".join(defaults.offsets))
         self.variable_var = tk.StringVar(value=speed.variable)
+        self.jump_source_var = tk.StringVar(value=f"{jump.prefix}{jump.source}")
+        self.jump_start_var = tk.StringVar(value=str(jump.start))
+        self.jump_end_var = tk.StringVar(value=str(jump.end))
+        self.jump_offsets_var = tk.StringVar(value=", ".join(jump.offsets))
 
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="States").grid(row=0, column=0, sticky="w", pady=3)
+        ttk.Label(frame, text="Attack states").grid(row=0, column=0, sticky="w", pady=3)
         ttk.Entry(frame, textvariable=self.start_var, width=7).grid(row=0, column=1, sticky="w")
         ttk.Label(frame, text="to").grid(row=0, column=2, padx=4)
         ttk.Entry(frame, textvariable=self.end_var, width=7).grid(row=0, column=3, sticky="w")
@@ -171,13 +175,31 @@ class BatchDialog(tk.Toplevel):
         ttk.Entry(speed_box, textvariable=self.variable_var, width=24).grid(row=1, column=1, sticky="w")
         self._buttons(speed_box, 2, self.speed_spec)
 
-        ttk.Label(frame, foreground="gray", text="Both jobs are safe to run again; finished work is skipped.").grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
-        ttk.Button(frame, text="Close", command=self.destroy).grid(row=3, column=3, sticky="e", pady=(10, 0))
+        jump_box = ttk.LabelFrame(frame, text=" Add missing jump attacks ", padding=8)
+        jump_box.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+        ttk.Label(
+            jump_box, wraplength=420, justify="left", foreground="gray",
+            text="Each jump is three linked states: 32X0 start → 32X1 loop → 32X2 landing. Copies the "
+                 "source set into every missing set in the range (3200, 3210, ... 3290) and adds missing "
+                 "offsets to the sets that exist.",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 6))
+        ttk.Label(jump_box, text="Copy from set").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(jump_box, textvariable=self.jump_source_var, width=16).grid(row=1, column=1, columnspan=3, sticky="w")
+        ttk.Label(jump_box, text="States").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Entry(jump_box, textvariable=self.jump_start_var, width=7).grid(row=2, column=1, sticky="w")
+        ttk.Label(jump_box, text="to").grid(row=2, column=2, padx=4)
+        ttk.Entry(jump_box, textvariable=self.jump_end_var, width=7).grid(row=2, column=3, sticky="w")
+        ttk.Label(jump_box, text="Offsets").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Entry(jump_box, textvariable=self.jump_offsets_var, width=24).grid(row=3, column=1, columnspan=3, sticky="w")
+        self._buttons(jump_box, 4, self.jump_spec, columnspan=4)
 
-    def _buttons(self, parent, row, make_spec):
+        ttk.Label(frame, foreground="gray", text="All jobs are safe to run again; finished work is skipped.").grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Button(frame, text="Close", command=self.destroy).grid(row=4, column=3, sticky="e", pady=(10, 0))
+
+    def _buttons(self, parent, row, make_spec, columnspan=3):
         box = ttk.Frame(parent)
-        box.grid(row=row, column=0, columnspan=3, sticky="e", pady=(6, 0))
+        box.grid(row=row, column=0, columnspan=columnspan, sticky="e", pady=(6, 0))
         ttk.Button(box, text="Run", command=lambda: self.app.run_batch(make_spec(), apply=True)).pack(side="right")
         ttk.Button(box, text="Preview", command=lambda: self.app.run_batch(make_spec(), apply=False)).pack(
             side="right", padx=6
@@ -200,6 +222,19 @@ class BatchDialog(tk.Toplevel):
             return None
         offsets = tuple(o for o in re.split(r"[\s,]+", self.offsets_var.get().strip()) if o)
         return AttackRange(prefix=m.group(1), source=int(m.group(2)), start=bounds[0], end=bounds[1], offsets=offsets)
+
+    def jump_spec(self):
+        m = re.match(r"^\s*([A-Za-z_]+)(\d+)\s*$", self.jump_source_var.get())
+        try:
+            start, end = int(self.jump_start_var.get()), int(self.jump_end_var.get())
+        except ValueError:
+            messagebox.showerror("Batch", "Use whole numbers for the jump attack range.", parent=self)
+            return None
+        if not m:
+            messagebox.showerror("Batch", "Use a source set like JumpAttack3200.", parent=self)
+            return None
+        offsets = tuple(o for o in re.split(r"[\s,]+", self.jump_offsets_var.get().strip()) if o)
+        return JumpAttackRange(prefix=m.group(1), source=int(m.group(2)), start=start, end=end, offsets=offsets)
 
     def speed_spec(self):
         bounds = self._range()
@@ -297,17 +332,24 @@ class App:
         ttk.Label(step3, text="New ClipGen name").grid(row=1, column=0, sticky="w", pady=2)
         self.clip_var = tk.StringVar()
         self.clip_var.trace_add("write", lambda *a: self.clip_name_changed())
-        ttk.Entry(step3, textvariable=self.clip_var).grid(row=1, column=1, sticky="ew", padx=6, pady=2)
+        self.clip_entry = ttk.Entry(step3, textvariable=self.clip_var)
+        self.clip_entry.grid(row=1, column=1, sticky="ew", padx=6, pady=2)
         ttk.Label(step3, text="New animationName").grid(row=2, column=0, sticky="w", pady=2)
         self.anim_var = tk.StringVar()
-        anim_entry = ttk.Entry(step3, textvariable=self.anim_var)
-        anim_entry.grid(row=2, column=1, sticky="ew", padx=6, pady=2)
-        anim_entry.bind("<Key>", lambda e: setattr(self, "_anim_edited", True))
+        self.anim_entry = ttk.Entry(step3, textvariable=self.anim_var)
+        self.anim_entry.grid(row=2, column=1, sticky="ew", padx=6, pady=2)
+        self.anim_entry.bind("<Key>", lambda e: setattr(self, "_anim_edited", True))
         self.hks_var = tk.BooleanVar(value=True)
         self.hks_check = ttk.Checkbutton(step3, text="Also update c0000_cmsg.hks (player only)", variable=self.hks_var)
         self.hks_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.group_var = tk.BooleanVar(value=True)
+        self.group_check = ttk.Checkbutton(
+            step3, text="Copy the whole jump set (start → loop → landing)", variable=self.group_var,
+            command=self.mode_changed,
+        )
+        self.group_check.grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 0))
         self.names_hint = ttk.Label(step3, foreground="gray", wraplength=740, justify="left")
-        self.names_hint.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.names_hint.grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         # ---- actions
         actions = ttk.Frame(outer)
@@ -490,6 +532,20 @@ class App:
             hint = (f"Copies {old} under the new name; copied objects are renamed by swapping "
                     f"'{old}' for the new name (e.g. HangMove → AltHangMove, HangMoveL_CMSG → AltHangMoveL_CMSG). "
                     "To add to an existing state instead, use variation or branch.")
+        jump = mode == STATE and b is not None and is_jump_set(b, chain.state_info)
+        self.group_check.grid() if jump else self.group_check.grid_remove()
+        grouped = jump and self.group_var.get()
+        for entry in (self.clip_entry, self.anim_entry):
+            entry.config(state="disabled" if grouped else "normal")
+        if grouped:
+            old = b.name_of(chain.state_info)
+            base = set_base(old)
+            prefix = old[: len(old) - len(str(base))]
+            self.new_name_label.config(text="New set name")
+            hint = (f"Copies {prefix}{base} (start), {prefix}{base + 1} (loop) and {prefix}{base + 2} (landing) "
+                    f"together. Type the new start state, e.g. {prefix}3260; the loop and landing get the next "
+                    "two numbers, and clips are named like the originals with the number swapped "
+                    f"(a000_00{base}_… → a000_003260_…). The start state's own transition is pointed at the new loop.")
         self.hks_check.grid() if mode == STATE else self.hks_check.grid_remove()
         self.names_hint.config(text=hint)
 
@@ -508,9 +564,12 @@ class App:
             raise ValueError("Pick an existing ClipGen to copy in step 1.")
         source = self.source_var.get().strip()
         clip = self.clip_var.get().strip()
-        if clip == source:
-            raise ValueError("The new ClipGen name is the same as the original. Change the ID or offset.")
         mode = self.mode_var.get()
+        chain = self.current_chain()
+        group = (mode == STATE and self.group_var.get()
+                 and is_jump_set(self.project.behavior(), chain.state_info))
+        if clip == source and not group:
+            raise ValueError("The new ClipGen name is the same as the original. Change the ID or offset.")
         return Request(
             mode=mode,
             source_clip=source,
@@ -519,6 +578,7 @@ class App:
             animation_name=self.anim_var.get().strip(),
             new_name=self.new_name_var.get().strip() if mode != VARIATION else "",
             edit_hks=bool(self.hks_var.get()) and mode == STATE,
+            group=group,
         )
 
     def preview(self):
@@ -590,7 +650,7 @@ class App:
         if result.written:
             self.write_log([f"Backup saved: {result.backup}"] + [f"Wrote {p}" for p in result.written], tag="ok")
             steps = ["• Convert the XML back to .hkx and repack the behbnd."]
-            if isinstance(spec, AttackRange):
+            if isinstance(spec, (AttackRange, JumpAttackRange)):
                 steps.insert(0, "• Add the new animations to the character's .anibnd (only the ones the enemy really has).")
             else:
                 steps.insert(0, f"• Set {spec.variable} from HKS to change the attack speed (1.0 = normal).")
@@ -600,7 +660,10 @@ class App:
 
     def next_steps(self, req):
         steps = ["Add the animation to the character's .anibnd.", "Convert the XML back to .hkx and repack the behbnd."]
-        if req.mode == STATE:
+        if req.mode == STATE and req.group:
+            base = req.new_name
+            steps.insert(0, f'Fire W_{base} to start the jump and W_{base[:-1]}2 to land, from HKS (the loop starts by itself).')
+        elif req.mode == STATE:
             steps.insert(0, f'Fire it from HKS with FireEvent("W_{req.new_name}") (e.g. in c0000_transition.hks or c9997.hks).')
         if req.mode == BRANCH:
             steps.insert(0, "Set the selector's index variable in HKS to play the new branch.")

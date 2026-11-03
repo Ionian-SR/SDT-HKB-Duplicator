@@ -8,7 +8,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from batch import AttackRange, PlaybackSpeedBinding
+from batch import AttackRange, JumpAttackRange, PlaybackSpeedBinding, copy_state_set, is_jump_set, set_base
 from behavior import Behavior, BehaviorError
 from hks_parser import HksError, HksScript
 from id_maps import IdMap
@@ -34,6 +34,7 @@ class Request:
     chain_index: int = 0
     new_name: str = ""          # branch name (mode 2) or state name (mode 3)
     edit_hks: bool = False
+    group: bool = False         # mode 3: copy the whole jump set (start, loop, landing)
 
 
 @dataclass
@@ -99,7 +100,8 @@ class Project:
 
     def _validate(self, req):
         problems = []
-        for label, value in (("New clip name", req.clip_name), ("Animation name", req.animation_name)):
+        clip_fields = () if req.group else (("New clip name", req.clip_name), ("Animation name", req.animation_name))
+        for label, value in clip_fields:
             if not value:
                 problems.append(f"{label} is empty.")
             elif not NAME_RE.match(value):
@@ -118,17 +120,19 @@ class Project:
         if problems:
             raise ProjectError("\n".join(problems))
 
-    def _register_names(self, states, log, outputs):
-        """Add (state name, event name) pairs to statenameid/eventnameid where missing."""
-        for key, index in (("event_id_map", 1), ("state_id_map", 0)):
+    def _register_names(self, names, log, outputs):
+        """Add {"states": [...], "events": [...]} to statenameid/eventnameid where missing."""
+        for key, kind in (("event_id_map", "events"), ("state_id_map", "states")):
+            wanted = names.get(kind) or []
+            if not wanted:
+                continue
             path = self.files[key]
             if not path:
                 log.append(f"Skipped {key}: not set in the project.")
                 continue
             id_map = IdMap(path)
             added, present = [], []
-            for pair in states:
-                name = pair[index]
+            for name in wanted:
                 if name in id_map:
                     present.append(name)
                 else:
@@ -148,17 +152,17 @@ class Project:
         if problems:
             raise ProjectError("\n".join(problems))
         behavior = Behavior(self.files["behavior_xml"])
-        log, new_states, changed = spec.run(behavior)
+        log, names, changed = spec.run(behavior)
         outputs = {}
-        if new_states:
-            self._register_names(new_states, log, outputs)
+        if names:
+            self._register_names(names, log, outputs)
         if changed:
             outputs[self.files["behavior_xml"]] = behavior.to_bytes()
         return log, outputs
 
     def _build(self, req):
         """Run the request on fresh in-memory copies. Returns (log, {path: bytes})."""
-        if isinstance(req, (AttackRange, PlaybackSpeedBinding)):
+        if isinstance(req, (AttackRange, JumpAttackRange, PlaybackSpeedBinding)):
             return self._build_batch(req)
         self._validate(req)
         behavior = Behavior(self.files["behavior_xml"])
@@ -169,6 +173,8 @@ class Project:
         log = [f"Source: {chain.describe()}"]
         outputs = {}
 
+        if req.mode == STATE and req.group:
+            return self._build_jump_set(behavior, chain, req, log, outputs)
         if req.mode == VARIATION:
             result = behavior.add_variation(chain, req.clip_name, req.animation_name)
         elif req.mode == BRANCH:
@@ -185,7 +191,7 @@ class Project:
             )
 
         if req.mode == STATE:
-            self._register_names([(req.new_name, result["event_name"])], log, outputs)
+            self._register_names({"states": [req.new_name], "events": [result["event_name"]]}, log, outputs)
             if req.edit_hks:
                 hks = HksScript(self.files["cmsg_script"])
                 log += hks.add_state(req.new_name, result["source_state_name"])
@@ -193,6 +199,28 @@ class Project:
             else:
                 log.append("HKS file not changed (update HKS was off).")
 
+        outputs[self.files["behavior_xml"]] = behavior.to_bytes()
+        return log, outputs
+
+    def _build_jump_set(self, behavior, chain, req, log, outputs):
+        """Mode 3 for a jump attack: copy start, loop and landing together."""
+        source = behavior.name_of(chain.state_info)
+        if not is_jump_set(behavior, chain.state_info):
+            raise ProjectError(f"{source} isn't part of a complete jump set (start → loop → landing).")
+        prefix = re.match(r"^(\D+)", source).group(1)
+        new_base = set_base(req.new_name, prefix)
+        if new_base is None or not req.new_name.endswith("0"):
+            raise ProjectError(f"Name the new set after its start state, e.g. {prefix}3260 (ends in 0).")
+        src_base = set_base(source, prefix)
+        lines, names = copy_state_set(behavior, prefix, src_base, new_base)
+        log.append(f"Copied jump set {prefix}{src_base}-{src_base + 2} to {prefix}{new_base}-{new_base + 2}:")
+        log += [f"  {line}" for line in lines]
+        self._register_names(names, log, outputs)
+        if req.edit_hks:
+            hks = HksScript(self.files["cmsg_script"])
+            for k in range(3):
+                log += hks.add_state(f"{prefix}{new_base + k}", f"{prefix}{src_base + k}")
+            outputs[self.files["cmsg_script"]] = hks.to_bytes()
         outputs[self.files["behavior_xml"]] = behavior.to_bytes()
         return log, outputs
 

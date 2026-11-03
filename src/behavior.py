@@ -489,14 +489,7 @@ class Behavior:
                 f"A state named '{state_name}' already exists. "
                 "Use 'Add variation' or 'Add branch' to add to it instead."
             )
-        # An event can already be registered without a state behind it (common
-        # for NPC attacks); reuse it as long as no transition fires it yet.
-        events = self.event_names()
-        reused_event = None
-        if event_name in events:
-            reused_event = events.index(event_name)
-            if reused_event in self._used_event_ids():
-                raise BehaviorError(f"The event '{event_name}' already exists and is used by a transition.")
+        reused_event = self._unused_event(event_name)
         state_machine = self.state_machine_of(old_state)
 
         def renamed(oid):
@@ -546,21 +539,7 @@ class Behavior:
 
         self._append_pointer(state_machine, "states", new_state)
 
-        if reused_event is not None:
-            event_index = reused_event
-        else:
-            # Event: name + info, same index in both lists.
-            event_index = self._array_append(
-                self.array(self.string_data, "eventNames"), etree.Element("string", value=event_name)
-            )
-            event_infos = self.array(self.graph_data, "eventInfos")
-            info = copy.deepcopy(self.array_items(event_infos)[-1])
-            info.find("field[@name='flags']/integer").set("value", "0")
-            info_index = self._array_append(event_infos, info)
-            if info_index != event_index:
-                raise BehaviorError(
-                    f"eventNames ({event_index}) and eventInfos ({info_index}) are out of sync in this XML."
-                )
+        event_index, _ = self._ensure_event(event_name)
 
         log.append(f"Created state {state_name} (stateId {new_state_id}) in {self.name_of(state_machine)}.")
         log.extend(f"  new object {oid}: {name}" for oid, name in reversed(created))
@@ -579,6 +558,95 @@ class Behavior:
             "event_index": event_index,
             "event_reused": reused_event is not None,
         }
+
+    def _unused_event(self, event_name):
+        """Index of an already-registered event no transition fires yet, or None if it's not registered.
+
+        Events are often registered without anything behind them (common for
+        NPC attacks), so they can be reused; one already in use can't.
+        """
+        events = self.event_names()
+        if event_name not in events:
+            return None
+        index = events.index(event_name)
+        if index in self._used_event_ids():
+            raise BehaviorError(f"The event '{event_name}' already exists and is used by a transition.")
+        return index
+
+    def _ensure_event(self, event_name):
+        """Return (index, reused) for ``event_name``, registering it (name + info) if needed."""
+        index = self._unused_event(event_name)
+        if index is not None:
+            return index, True
+        index = self._array_append(
+            self.array(self.string_data, "eventNames"), etree.Element("string", value=event_name)
+        )
+        event_infos = self.array(self.graph_data, "eventInfos")
+        info = copy.deepcopy(self.array_items(event_infos)[-1])
+        info.find("field[@name='flags']/integer").set("value", "0")
+        info_index = self._array_append(event_infos, info)
+        if info_index != index:
+            raise BehaviorError(f"eventNames ({index}) and eventInfos ({info_index}) are out of sync in this XML.")
+        return index, False
+
+    def add_state_group(self, chains, state_names, clip_names, animation_names):
+        """Copy several linked states of one state machine together (e.g. a jump: start → loop → landing).
+
+        Each state is copied like ``add_state``. A source state's own
+        transition list (not the wildcard one) is then copied for its copy:
+        targets inside the group point at the copies, and events named
+        ``<From>_to_<To>`` after group states get the new names (an unused
+        registered event is reused, otherwise one is added). Anything else in
+        those lists stays as it is.
+        """
+        old_states = [c.state_info for c in chains]
+        machine = self.state_machine_of(old_states[0])
+        if any(self.state_machine_of(s) != machine for s in old_states[1:]):
+            raise BehaviorError("All states of a group must be in the same state machine.")
+        for name in state_names:
+            if self.find_by_name(name, STATE_INFO):
+                raise BehaviorError(f"A state named '{name}' already exists.")
+
+        results = [self.add_state(c, n, cl, an)
+                   for c, n, cl, an in zip(chains, state_names, clip_names, animation_names)]
+        new_ids = {self.get_value(old, "stateId"): r["state_id"] for old, r in zip(old_states, results)}
+        new_names = {self.name_of(old): new for old, new in zip(old_states, state_names)}
+        log, events = [], []
+
+        for old, result in zip(old_states, results):
+            own = self.get_value(old, "transitions")
+            if own in (None, NULL):
+                continue
+            copy_obj = self._clone_object(own)
+            copy_id = copy_obj.get("id")
+            self.objects[copy_id] = copy_obj
+            for record in self.array_items(self.array(copy_id, "transitions")):
+                to_state = record.find("field[@name='toStateId']/integer")
+                old_target = int(to_state.get("value"))
+                if old_target in new_ids:
+                    to_state.set("value", str(new_ids[old_target]))
+                event = record.find("field[@name='eventId']/integer")
+                event_id = int(event.get("value"))
+                if event_id < 0:
+                    continue
+                old_event = self.event_names()[event_id]
+                parts = old_event.split("_to_")
+                if len(parts) == 2 and all(p in new_names for p in parts):
+                    new_event = "_to_".join(new_names[p] for p in parts)
+                    index, reused = self._ensure_event(new_event)
+                    event.set("value", str(index))
+                    events.append(new_event)
+                    how = "reused event" if reused else "new event"
+                    log.append(f"{new_names[self.name_of(old)]}: own transition "
+                               f"{new_event} (#{index}, {how}) → stateId {to_state.get('value')}.")
+                elif old_target in new_ids:
+                    log.append(f"WARNING: {new_names[self.name_of(old)]} still uses {old_event} for its "
+                               "transition, which also fires the original state's transition.")
+            self._append_object(copy_obj)
+            self.set_value(result["state"], "transitions", copy_id)
+            self.parents[copy_id].append(result["state"])
+
+        return {"results": results, "log": log, "events": events}
 
     def _add_wildcard_transition(self, state_machine, old_state, event_index, new_state_id):
         """Let ``event_index`` jump to the new state from anywhere in the state machine.
